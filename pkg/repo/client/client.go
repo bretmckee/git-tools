@@ -3,11 +3,12 @@ package client
 import (
 	"context"
 
+	"github.com/bretmckee/git-tools/pkg/repo"
 	"github.com/google/go-github/v28/github"
 	"golang.org/x/oauth2"
 )
 
-type RESTClient struct {
+type Client struct {
 	owner  string
 	repo   string
 	login  string
@@ -15,12 +16,14 @@ type RESTClient struct {
 	client *github.Client
 }
 
-func Create(owner, repo, login, token string) *RESTClient {
+var _ repo.Repo = (*Client)(nil)
+
+func Create(owner, repo, login, token string) *Client {
 	ctx := context.Background()
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
 	tc := oauth2.NewClient(ctx, ts)
 
-	return &RESTClient{
+	return &Client{
 		owner:  owner,
 		repo:   repo,
 		login:  login,

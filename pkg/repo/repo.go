@@ -1,10 +1,10 @@
-package client
+package repo
 
 import (
 	"github.com/google/go-github/v28/github"
 )
 
-type RepoClient interface {
+type Repo interface {
 	// Branches returns a slice which contains all the branches for the
 	// repository.  Note that not all fields in the individual elements may be
 	// filled it. If complete data is required for a branch, Branch should be
@@ -15,7 +15,7 @@ type RepoClient interface {
 	Branch(name string) (*github.Branch, error)
 
 	// PullRequests returns a slice which contains all the pull requests for the
-	// respository.  Note that not all fields in the individual elements may be
+	// repository.  Note that not all fields in the individual elements may be
 	// filled it. If complete data is required for a pull request, PullRequest
 	// should be called.
 	PullRequests() ([]*github.PullRequest, error)
@@ -26,8 +26,8 @@ type RepoClient interface {
 	// MergePullRequest
 	MergePullRequest(id int, sha, msg string) (*github.PullRequest, error)
 
-	//
-	ChangePullRequstBase(id int, sha sring) error
+	//ChangePullRequestBase changes the base of pull request `id` to be `sha`.
+	ChangePullRequestBase(id int, sha string) error
 
 	// Commit returns the full information for the commit with SHA `sha`.
 	Commit(sha string) (*github.Commit, error)

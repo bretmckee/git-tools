@@ -8,11 +8,13 @@ import (
 	"github.com/kr/pretty"
 )
 
-func (c *RESTClient) Commit(sha string) (*github.Commit, error) {
+func (c *Client) Commit(sha string) (*github.Commit, error) {
 	commit, _, err := c.client.Git.GetCommit(c.ctx, c.owner, c.repo, sha)
 	if err != nil {
 		return nil, fmt.Errorf("Get of commit %q failed: %v", sha, err)
 	}
-	glog.V(2).Infof("Commit %q: %# v\n", sha, pretty.Formatter(*commit))
+	if glog.V(3) {
+		glog.Infof("Commit %q: %# v\n", sha, pretty.Formatter(*commit))
+	}
 	return commit, nil
 }
