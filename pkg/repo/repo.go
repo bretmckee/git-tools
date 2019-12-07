@@ -29,6 +29,9 @@ type Repo interface {
 	//ChangePullRequestBase changes the base of pull request `id` to be `sha`.
 	ChangePullRequestBase(id int, sha string) error
 
+	// CreatePullRequest creates a new pull request.
+	CreatePullRequest(title, head, base, body string, maintainerCanModify, draft bool) error
+
 	// Commit returns the full information for the commit with SHA `sha`.
 	Commit(sha string) (*github.Commit, error)
 }

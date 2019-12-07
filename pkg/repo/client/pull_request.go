@@ -48,6 +48,23 @@ func (c *Client) MergePullRequest(id int, sha, msg string) (*github.PullRequest,
 	return pr, nil
 }
 
+func (c *Client) Foo() error {
+	return nil
+}
+
+func (c *Client) CreatePullRequest(title, head, base, body string, maintainerCanModify, draft bool) error {
+	nr := &github.NewPullRequest{
+		Title:               github.String(title),
+		Head:                github.String(head),
+		Base:                github.String(base),
+		Body:                github.String(body),
+		MaintainerCanModify: github.Bool(maintainerCanModify),
+		Draft:               github.Bool(draft),
+	}
+	glog.Infof("nr=%# v", pretty.Formatter(*nr))
+	return nil
+}
+
 func (c *Client) ChangePullRequestBase(id int, sha string) error {
 	glog.Warningf("ChangePullRequestBase returning unchanged pr %d", id)
 	_, err := c.PullRequest(id)
@@ -56,4 +73,13 @@ func (c *Client) ChangePullRequestBase(id int, sha string) error {
 	}
 	// TODO(bretmckee): Actually change the base.
 	return nil
+}
+
+func (c *Client) updateBase(id int) (*github.PullRequest, error) {
+	glog.Warningf("updateBase returning unchanged pr %d", id)
+	pr, err := c.PullRequest(id)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to get pr after updating base for %d: %v", id, err)
+	}
+	return pr, nil
 }
