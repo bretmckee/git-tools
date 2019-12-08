@@ -12,12 +12,16 @@ import (
 
 type RepoData struct {
 	repo.Repo
-	BranchBySHA map[string]*github.Branch
-	PrByNumber  map[int]*github.PullRequest
+	BranchBySHA map[string][]*github.Branch
+	PrBySHA     map[string]*github.PullRequest
 }
 
-func Create(sourceOwner, sourceRepo, login, token string) *RepoData {
-	return &RepoData{Repo: client.Create(sourceOwner, sourceRepo, login, token)}
+func Create(sourceOwner, sourceRepo, login, token string) (*RepoData, error) {
+	r := &RepoData{Repo: client.Create(sourceOwner, sourceRepo, login, token)}
+	if err := r.LoadData(); err != nil {
+		return nil, fmt.Errorf("failed to load data: %v", err)
+	}
+	return r, nil
 }
 
 const MaxChainLength = 100
@@ -25,7 +29,7 @@ const MaxChainLength = 100
 func (r *RepoData) CommitChain(pos, end string) ([]string, error) {
 	var chain []string
 
-	glog.Infof("GetCommitChain begins pos=%s end=%s", pos, end)
+	glog.V(2).Infof("GetCommitChain begins pos=%s end=%s", pos, end)
 	for pos != end && len(chain) < MaxChainLength {
 		glog.V(2).Infof("pos=%s", pos)
 		commit, err := r.Commit(pos)
@@ -121,14 +125,10 @@ func (r *RepoData) loadBranches() error {
 	if err != nil {
 		return fmt.Errorf("list branches failed: %v", err)
 	}
-	bySHA := make(map[string]*github.Branch)
+	bySHA := make(map[string][]*github.Branch)
 	for _, b := range branches {
-		if _, ok := bySHA[*b.Commit.SHA]; ok {
-			glog.Warningf("skipping duplicate branch %s for %s", *b.Name, *b.Commit.SHA)
-			continue
-		}
 		glog.V(2).Infof("adding branch %s: %# v", *b.Name, pretty.Formatter(*b))
-		bySHA[*b.Commit.SHA] = b
+		bySHA[*b.Commit.SHA] = append(bySHA[*b.Commit.SHA], b)
 	}
 	r.BranchBySHA = bySHA
 	return nil
@@ -141,14 +141,16 @@ func (r *RepoData) loadPRs() error {
 	}
 	glog.V(2).Infof("got %d pull requests", len(prs))
 	// TODO(bretmckee): Make this by SHA of pull request branch
-	prByNumber := make(map[int]*github.PullRequest)
+	prBySHA := make(map[string]*github.PullRequest)
 	for _, pr := range prs {
+		sha := *pr.Head.SHA
 		id := *pr.Number
-		if prByNumber[id], err = r.PullRequest(id); err != nil {
-			return fmt.Errorf("unable to fetch full PR %d: %v", id, err)
+		if prBySHA[sha], err = r.PullRequest(id); err != nil {
+			return fmt.Errorf("unable to fetch full PR %d (sha %s): %v", id, sha, err)
 		}
-		glog.V(2).Infof("adding pr %d: %# v", id, pretty.Formatter(prByNumber[id]))
+		glog.V(2).Infof("adding pr %d: %# v", id, pretty.Formatter(prBySHA[sha]))
 	}
+	r.PrBySHA = prBySHA
 	return nil
 }
 

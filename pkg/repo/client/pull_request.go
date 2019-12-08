@@ -48,21 +48,12 @@ func (c *Client) MergePullRequest(id int, sha, msg string) (*github.PullRequest,
 	return pr, nil
 }
 
-func (c *Client) Foo() error {
-	return nil
-}
-
-func (c *Client) CreatePullRequest(title, head, base, body string, maintainerCanModify, draft bool) error {
-	nr := &github.NewPullRequest{
-		Title:               github.String(title),
-		Head:                github.String(head),
-		Base:                github.String(base),
-		Body:                github.String(body),
-		MaintainerCanModify: github.Bool(maintainerCanModify),
-		Draft:               github.Bool(draft),
+func (c *Client) CreatePullRequest(npr *github.NewPullRequest) (*github.PullRequest, error) {
+	pr, _, err := c.client.PullRequests.Create(c.ctx, c.owner, c.repo, npr)
+	if err != nil {
+		return nil, fmt.Errorf("pull request create failed: %v", err)
 	}
-	glog.Infof("nr=%# v", pretty.Formatter(*nr))
-	return nil
+	return pr, nil
 }
 
 func (c *Client) ChangePullRequestBase(id int, sha string) error {

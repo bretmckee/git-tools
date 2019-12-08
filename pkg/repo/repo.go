@@ -30,7 +30,7 @@ type Repo interface {
 	ChangePullRequestBase(id int, sha string) error
 
 	// CreatePullRequest creates a new pull request.
-	CreatePullRequest(title, head, base, body string, maintainerCanModify, draft bool) error
+	CreatePullRequest(npr *github.NewPullRequest) (*github.PullRequest, error)
 
 	// Commit returns the full information for the commit with SHA `sha`.
 	Commit(sha string) (*github.Commit, error)
