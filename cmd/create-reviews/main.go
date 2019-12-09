@@ -19,7 +19,6 @@ func createPR(r *repodata.RepoData, branch, base, oldest, newest string) error {
 	}
 	glog.Infof("Oldest Commit: %# v\n", pretty.Formatter(*o))
 	values := regexp.MustCompile("[\n]+").Split(*o.Message, 2)
-	glog.Infof("values=%#v", values)
 	if err := r.CreatePullRequest(values[0], branch, base, values[1], false, true); err != nil {
 		return fmt.Errorf("createPR failed to pr for %s:%v", branch, err)
 	}
