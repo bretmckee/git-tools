@@ -1,0 +1,20 @@
+#! /bin/bash
+set -e
+set -o pipefail
+
+MASTER=master
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+while [ $# -gt 0 ]
+do
+  PR=${1}
+  shift
+  SHA=$(hub pr show -f "%sH" ${PR})
+  # change the base of next PR to be master if it is a submitted branch.
+  git checkout -q ${SHA}
+  git pb
+  # Wait for tests
+  # Press the submit button 
+  git checkout -q ${BRANCH}
+  git fetch origin ${MASTER}:${MASTER}
+  git rebase master
+done
