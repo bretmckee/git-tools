@@ -79,7 +79,7 @@ func createPRs(r *repodata.RepoData, tipBranch, baseBranch string, maxCreates in
 	}
 	glog.V(2).Infof("Base Branch %# v\n", pretty.Formatter(*bb))
 
-	chain, err := r.CommitChain(*b.Commit.SHA, *bb.Commit.SHA)
+	chain, err := r.CommitChain(b.GetCommit().GetSHA(), *bb.Commit.SHA)
 	if err != nil {
 		return fmt.Errorf("Get commit chain failed: %v", err)
 	}

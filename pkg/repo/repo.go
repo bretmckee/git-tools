@@ -34,4 +34,7 @@ type Repo interface {
 
 	// Commit returns the full information for the commit with SHA `sha`.
 	Commit(sha string) (*github.Commit, error)
+
+	// Statuses returns the statues for commit ref.
+	CombinedStatus(ref string) (*github.CombinedStatus, error)
 }

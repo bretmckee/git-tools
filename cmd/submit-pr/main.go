@@ -1,115 +1,103 @@
 package main
 
 import (
-	"context"
 	"flag"
 	"fmt"
 	"os"
+	"time"
 
+	"github.com/bretmckee/git-tools/pkg/repo/repodata"
 	"github.com/golang/glog"
-	"github.com/google/go-github/v28/github"
-	"github.com/kr/pretty"
-	"golang.org/x/oauth2"
 )
 
-func (c *Connection) processChain(prs map[string]*github.PullRequest, chain Chain) error {
-	glog.Infof("processChain begins for %v", chain)
-	mergedPrevious := false
-	for _, sha := range chain.SHAs {
-		pr, ok := prs[sha]
-		if !ok {
-			return fmt.Errorf("Unable to locate pr for %q", sha)
-		}
-		id := int(*pr.Number)
-		pr, err := c.GetPr(id)
-		if err != nil {
-			return fmt.Errorf("Unable to get pr %d for %q", id)
-		}
-		// If we merged the previous PR, we have to change the base of this one.
-		if mergedPrevious {
-			if prs[sha], err = c.updateBase(id); err != nil {
-				return fmt.Errorf("Failed to update base for %d: %v", id, err)
-			}
-			mergedPrevious = false
-			glog.Warning("Short circuit returning, Mergable=%v", prs[sha].Mergeable)
-			return nil
-		}
-		if pr.Mergeable == nil {
-			glog.Infof("processChain ends for %s which has nil Mergeable", sha)
-			return nil
-		}
-		if !*pr.Mergeable {
-			glog.Infof("processChain ends for %s because Mergeable is false", sha)
-			return nil
-		}
-		glog.Infof("merging branch %d", id)
-		if prs[sha], err = c.mergePR(id, sha, *pr.Body); err != nil {
-			return fmt.Errorf("Unable to merge %d: %v", id, err)
-		}
-		mergedPrevious = true
+func submitPR(r *repodata.RepoData, dryRun, force bool, baseBranch string, number int) error {
+	const retrySeconds = 60
+	pr, ok := r.PrByNumber[number]
+	if !ok {
+		return fmt.Errorf("submitPR: %d was not found", number)
 	}
-	return nil
-}
-
-func (c *Connection) process(prs []*github.PullRequest, login string) error {
-	byId := make(map[string]*github.PullRequest)
-	for _, pr := range prs {
-		if *pr.User.Login == login {
-			byId[*pr.Head.SHA] = pr
-		}
+	if pr.GetMerged() {
+		glog.Warningf("PR %d is already merged.", number)
+		return nil
 	}
-
-	chains, err := buildChains(byId)
+	if prRef := pr.GetBase().GetRef(); prRef != baseBranch {
+		err := fmt.Errorf("pr base ref (%q) does not match base branch ref (%q):", prRef, baseBranch)
+		if !force {
+			return err
+		}
+		glog.Warningf("because force was specified, ignoring error %v", err)
+	}
+	bb, err := r.Branch(baseBranch)
 	if err != nil {
-		return fmt.Errorf("buildChains failed: %v", err)
+		return fmt.Errorf("failed to get base branch %q: %v", baseBranch, err)
 	}
-
-	for _, chain := range chains {
-		if err := c.processChain(byId, chain); err != nil {
-			return fmt.Errorf("process Chain failed: %v", err)
+	if prSHA, bbSHA := pr.GetBase().GetSHA(), bb.GetCommit().GetSHA(); prSHA != bbSHA {
+		err := fmt.Errorf("pr base SHA (%q) does not match base branch SHA(%q):", prSHA, bbSHA)
+		if !force {
+			return err
 		}
+		glog.Warningf("because force was specified, ignoring error %v", err)
 	}
-
+	ref := pr.GetHead().GetRef()
+	status, err := r.CombinedStatus(ref)
+	if err != nil {
+		return fmt.Errorf("submitPR: failed to get statuses:%v", err)
+	}
+	for status.GetState() == "pending" {
+		// TODO(bretmckee): Consider an argument to terminate this loop after a
+		// timeout.
+		glog.Warning("pr %d status is pending: waiting %d seconds", number, retrySeconds)
+		time.Sleep(time.Second * retrySeconds)
+	}
+	if state := status.GetState(); state == "failure" {
+		err := fmt.Errorf("pr %d cannot be submitted because it has status %s", number, state)
+		if !force {
+			return err
+		}
+		glog.Warningf("because force was specified, ignoring error %v", err)
+	}
+	if dryRun {
+		glog.Warningf("skipping submission of %d because a dry run was requested", number)
+		return nil
+	}
+	if _, err := r.MergePullRequest(number, pr.GetBase().GetSHA(), ""); err != nil {
+		return fmt.Errorf("failed to submit PR %d", number)
+	}
+	glog.Infof("Successfully submitted %d", number)
 	return nil
 }
 
 func main() {
 	var (
+		baseBranch  = flag.String("base", "master", "Base branch")
+		dryRun      = flag.Bool("dry-run", false, "Dry Run mode -- no pull requests will be created")
+		force       = flag.Bool("force", false, "Submit even if not fully approved.")
+		login       = flag.String("login", "", "Login of the user to submit for.")
+		pr          = flag.Int("pr", 0, "id of the closed pull request to rebase around")
 		sourceOwner = flag.String("source-owner", "", "Name of the owner (user or org) of the repo to create the commit in.")
 		sourceRepo  = flag.String("source-repo", "", "Name of repo to create the commit in.")
-		login       = flag.String("login", "", "Login of the user to submit for.")
+		token       = flag.String("token", "", "github auth token to use (also checks environment GITHUB_AUTH_TOKEN")
 	)
 	flag.Parse()
-	token := os.Getenv("GITHUB_AUTH_TOKEN")
-	if token == "" {
-		glog.Fatal("Unauthorized: No token present")
+	if *token == "" {
+		*token = os.Getenv("GITHUB_AUTH_TOKEN")
+	}
+	if *token == "" {
+		glog.Exit("Unauthorized: No token present")
 	}
 	if *sourceOwner == "" || *sourceRepo == "" || *login == "" {
-		glog.Fatal("You need to specify a non-empty value for the flags `-user`, `-source-owner` and `-source-repo`")
+		glog.Exitf("A non-empty value must be specified for the flags `-source-owner (=%q)`, `-source-repo (=%q)` and `-login (=%q)`", *sourceOwner, *sourceRepo, *login)
+	}
+	if *pr <= 0 {
+		glog.Exit("An positive integer value must be specified for `-pr`")
 	}
 
-	ctx := context.Background()
-	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
-	tc := oauth2.NewClient(ctx, ts)
-
-	c := newConnection(*sourceOwner, *sourceRepo, github.NewClient(tc))
-
-	branches, err := c.ListBranches()
+	r, err := repodata.Create(*sourceOwner, *sourceRepo, *login, *token)
 	if err != nil {
-		glog.Fatalf("list branches failed: %v", err)
+		glog.Exitf("failed to create repodata: %v", err)
 	}
 
-	for i, b := range branches {
-		glog.V(2).Infof("Branch %d: %# v\n", i, pretty.Formatter(*b))
-	}
-	return
-
-	prs, err := c.ListPRs()
-	if err != nil {
-		glog.Fatalf("list pull requests failed: %v", err)
-	}
-
-	if err := c.process(prs, *login); err != nil {
-		glog.Fatalf("process failed: %v", err)
+	if err := submitPR(r, *dryRun, *force, *baseBranch, *pr); err != nil {
+		glog.Exitf("submitPR failed: %v", err)
 	}
 }
