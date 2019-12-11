@@ -1,0 +1,90 @@
+#! /bin/bash
+#
+# git-push-to-branches: Push branches for all commits that
+# have a directive that are new on this branch (i.e. not contained in the merge
+# base with master)
+
+# Also add:
+# git config --global alias.pb push-branches
+#
+# Inspired by git-push-to-target, which was:
+# Copyright (c) 2017 William Chargin. Released under the MIT license.
+# see https://wchargin.github.io/posts/managing-dependent-pull-requests
+
+DIRECTIVE='bret.mckee-branch'  # any regex metacharacters should be escaped
+SKIP='wip'
+BRANCH_PREFIX='bret.mckee/'
+
+REMOTE=${1:-origin}
+PARENT_BRANCH=${2:-master}
+
+target_branch() {
+    directive="$( \
+        git show --quiet --pretty='%B' $1 \
+        | sed -n 's/^'"${DIRECTIVE}"': \([/A-Za-z0-9_.-]\+\)$/\1/p' \
+        ; )"
+    if [ -z "${directive}" ]; then
+        # printf >&2 'error: missing "%s" directive\n' "${DIRECTIVE}"
+        return 0
+    fi
+    if [ "$(printf '%s\n' "${directive}" | wc -l)" -gt 1 ]; then
+        printf >&2 'error: multiple "%s" directives\n' "${DIRECTIVE}"
+        return 1
+    fi
+    printf '%s%s\n' "${BRANCH_PREFIX}" "${directive}"
+}
+
+skip() {
+  git show --quiet --pretty='%s' $1 | grep -qi "${SKIP}"
+}
+
+MERGE_BASE=$(git merge-base HEAD ${PARENT_BRANCH})
+if [ -z ${MERGE_BASE} ]
+then
+  echo "unable to determine merge base for HEAD and ${PARENT}" 1>&2
+  exit 1
+fi
+
+
+CAN_SKIP=true
+NEEDS_BRANCH=""
+git rev-list ${MERGE_BASE}..HEAD |
+while read COMMIT
+do
+  # We can skip some commits at the beginning, but once we
+  # have found a non-skip commit we stop checking.
+  if ${CAN_SKIP}
+  then
+    if skip ${COMMIT}
+    then
+      continue
+    fi
+    CAN_SKIP=false
+  fi
+  if [ -z ${NEEDS_BRANCH} ]
+  then
+    NEEDS_BRANCH=${COMMIT}
+  fi
+  BRANCH_NAME=$(target_branch ${COMMIT})
+  if [ $? -ne 0 ]
+  then
+    echo "processing failed for commit ${COMMIT}" 2>&1
+    exit 1
+  fi
+
+  if [ -z ${BRANCH_NAME} ]
+  then
+    continue
+  fi
+
+  EXISTING_HASH=$(git rev-parse remotes/${REMOTE}/${BRANCH_NAME}) 2> /dev/null
+
+  if [ "X${EXISTING_HASH}" != "X${NEEDS_BRANCH}" ]
+  then
+    echo "Assigning branch ${BRANCH_NAME} to commit ${NEEDS_BRANCH} based on marker in ${COMMIT}"
+    git push --force-with-lease "${REMOTE}" ${NEEDS_BRANCH}:refs/heads/"${BRANCH_NAME}"
+  else
+    echo "Not updating unchanged branch ${BRANCH_NAME}"
+  fi
+  NEEDS_BRANCH=""
+done
