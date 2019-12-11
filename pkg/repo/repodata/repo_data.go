@@ -14,6 +14,7 @@ type RepoData struct {
 	repo.Repo
 	BranchBySHA map[string][]*github.Branch
 	PrBySHA     map[string]*github.PullRequest
+	PrByNumber  map[int]*github.PullRequest
 }
 
 func Create(sourceOwner, sourceRepo, login, token string) (*RepoData, error) {
@@ -125,12 +126,11 @@ func (r *RepoData) loadBranches() error {
 	if err != nil {
 		return fmt.Errorf("list branches failed: %v", err)
 	}
-	bySHA := make(map[string][]*github.Branch)
+	r.BranchBySHA = make(map[string][]*github.Branch)
 	for _, b := range branches {
 		glog.V(2).Infof("adding branch %s: %# v", *b.Name, pretty.Formatter(*b))
-		bySHA[*b.Commit.SHA] = append(bySHA[*b.Commit.SHA], b)
+		r.BranchBySHA[*b.Commit.SHA] = append(r.BranchBySHA[*b.Commit.SHA], b)
 	}
-	r.BranchBySHA = bySHA
 	return nil
 }
 
@@ -141,16 +141,19 @@ func (r *RepoData) loadPRs() error {
 	}
 	glog.V(2).Infof("got %d pull requests", len(prs))
 	// TODO(bretmckee): Make this by SHA of pull request branch
-	prBySHA := make(map[string]*github.PullRequest)
+	r.PrBySHA = make(map[string]*github.PullRequest)
+	r.PrByNumber = make(map[int]*github.PullRequest)
 	for _, pr := range prs {
 		sha := *pr.Head.SHA
 		id := *pr.Number
-		if prBySHA[sha], err = r.PullRequest(id); err != nil {
+		fullPR, err := r.PullRequest(id)
+		if err != nil {
 			return fmt.Errorf("unable to fetch full PR %d (sha %s): %v", id, sha, err)
 		}
-		glog.V(2).Infof("adding pr %d: %# v", id, pretty.Formatter(prBySHA[sha]))
+		glog.V(2).Infof("adding pr %d: %# v", id, pretty.Formatter(fullPR))
+		r.PrBySHA[sha] = fullPR
+		r.PrByNumber[id] = fullPR
 	}
-	r.PrBySHA = prBySHA
 	return nil
 }
 

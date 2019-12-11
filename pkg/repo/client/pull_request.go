@@ -17,33 +17,33 @@ func (c *Client) PullRequests() ([]*github.PullRequest, error) {
 	return prs, nil
 }
 
-func (c *Client) PullRequest(id int) (*github.PullRequest, error) {
-	pr, _, err := c.client.PullRequests.Get(c.ctx, c.owner, c.repo, id)
+func (c *Client) PullRequest(num int) (*github.PullRequest, error) {
+	pr, _, err := c.client.PullRequests.Get(c.ctx, c.owner, c.repo, num)
 	if err != nil {
-		return nil, fmt.Errorf("Get of PR %d failed: %v", id, err)
+		return nil, fmt.Errorf("Get of PR %d failed: %v", num, err)
 	}
 	if glog.V(3) {
-		glog.Infof("PR %d: %# v\n", id, pretty.Formatter(*pr))
+		glog.Infof("PR %d: %# v\n", num, pretty.Formatter(*pr))
 	}
 	return pr, nil
 }
 
-func (c *Client) MergePullRequest(id int, sha, msg string) (*github.PullRequest, error) {
+func (c *Client) MergePullRequest(num int, sha, msg string) (*github.PullRequest, error) {
 	o := &github.PullRequestOptions{
 		SHA:         sha,
 		MergeMethod: "rebase",
 	}
-	res, resp, err := c.client.PullRequests.Merge(c.ctx, c.owner, c.repo, id, msg, o)
+	res, resp, err := c.client.PullRequests.Merge(c.ctx, c.owner, c.repo, num, msg, o)
 	if err != nil {
-		return nil, fmt.Errorf("github merge of %d failed: %v", id, err)
+		return nil, fmt.Errorf("github merge of %d failed: %v", num, err)
 	}
 	if glog.V(3) {
-		glog.Infof("merge PR %d res: %# v\n", id, pretty.Formatter(*res))
-		glog.Infof("merge PR %d resp: %# v\n", id, pretty.Formatter(*resp))
+		glog.Infof("merge PR %d res: %# v\n", num, pretty.Formatter(*res))
+		glog.Infof("merge PR %d resp: %# v\n", num, pretty.Formatter(*resp))
 	}
-	pr, err := c.PullRequest(id)
+	pr, err := c.PullRequest(num)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to get pr after updating base for %d: %v", id, err)
+		return nil, fmt.Errorf("Failed to get pr after updating base for %d: %v", num, err)
 	}
 	return pr, nil
 }
@@ -56,21 +56,15 @@ func (c *Client) CreatePullRequest(npr *github.NewPullRequest) (*github.PullRequ
 	return pr, nil
 }
 
-func (c *Client) ChangePullRequestBase(id int, sha string) error {
-	glog.Warningf("ChangePullRequestBase returning unchanged pr %d", id)
-	_, err := c.PullRequest(id)
+func (c *Client) ChangePullRequestBase(num int, ref string) error {
+	glog.Warningf("ChangePullRequestBase returning unchanged pr %d", num)
+	pr, err := c.PullRequest(num)
 	if err != nil {
-		return fmt.Errorf("Failed to get pr after updating base for %d: %v", id, err)
+		return fmt.Errorf("Failed to get pr after updating base for %d: %v", num, err)
 	}
-	// TODO(bretmckee): Actually change the base.
+	pr.Base.Ref = github.String(ref)
+	if _, _, err := c.client.PullRequests.Edit(c.ctx, c.owner, c.repo, num, pr); err != nil {
+		return fmt.Errorf("Failed to change base for pr %d: %v", num, err)
+	}
 	return nil
-}
-
-func (c *Client) updateBase(id int) (*github.PullRequest, error) {
-	glog.Warningf("updateBase returning unchanged pr %d", id)
-	pr, err := c.PullRequest(id)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to get pr after updating base for %d: %v", id, err)
-	}
-	return pr, nil
 }

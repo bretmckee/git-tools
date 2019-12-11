@@ -9,11 +9,11 @@ do
   PR=${1}
   shift
   SHA=$(hub pr show -f "%sH" ${PR})
-  # change the base of next PR to be master if it is a submitted branch.
   git checkout -q ${SHA}
   git pb
   # Wait for tests
   # Press the submit button 
+  # change the base of any PR that used to be this branch to be master
   git checkout -q ${BRANCH}
   git fetch origin ${MASTER}:${MASTER}
   git rebase master

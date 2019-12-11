@@ -20,14 +20,14 @@ type Repo interface {
 	// should be called.
 	PullRequests() ([]*github.PullRequest, error)
 
-	// PullRequest returns full information for pull request `id`.
-	PullRequest(id int) (*github.PullRequest, error)
+	// PullRequest returns full information for pull request `num`.
+	PullRequest(num int) (*github.PullRequest, error)
 
 	// MergePullRequest
-	MergePullRequest(id int, sha, msg string) (*github.PullRequest, error)
+	MergePullRequest(num int, sha, msg string) (*github.PullRequest, error)
 
-	//ChangePullRequestBase changes the base of pull request `id` to be `sha`.
-	ChangePullRequestBase(id int, sha string) error
+	//ChangePullRequestBase changes the base of pull request `num` to be `ref`.
+	ChangePullRequestBase(num int, ref string) error
 
 	// CreatePullRequest creates a new pull request.
 	CreatePullRequest(npr *github.NewPullRequest) (*github.PullRequest, error)
