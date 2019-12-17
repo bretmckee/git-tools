@@ -11,6 +11,7 @@
 # Copyright (c) 2017 William Chargin. Released under the MIT license.
 # see https://wchargin.github.io/posts/managing-dependent-pull-requests
 
+SINGLE=${SINGLE:false}
 DIRECTIVE='bret.mckee-branch'  # any regex metacharacters should be escaped
 SKIP='wip'
 BRANCH_PREFIX='bret.mckee/'
@@ -46,9 +47,10 @@ then
 fi
 
 
+BRANCHES=()
+SHAS=()
 CAN_SKIP=true
 NEEDS_BRANCH=""
-git rev-list ${MERGE_BASE}..HEAD |
 while read COMMIT
 do
   # We can skip some commits at the beginning, but once we
@@ -76,15 +78,27 @@ do
   then
     continue
   fi
+  BRANCHES+=("${BRANCH_NAME}")
+  SHAS+=("${NEEDS_BRANCH}")
+  NEEDS_BRANCH=""
+done < <(git rev-list ${MERGE_BASE}..HEAD)
 
+
+for i in $(echo "${!BRANCHES[@]} " | tac -s ' ')
+do
+  BRANCH_NAME=${BRANCHES[${i}]}
+  SHA=${SHAS[${i}]}
   EXISTING_HASH=$(git rev-parse remotes/${REMOTE}/${BRANCH_NAME}) 2> /dev/null
 
-  if [ "X${EXISTING_HASH}" != "X${NEEDS_BRANCH}" ]
+  if [ "X${EXISTING_HASH}" != "X${SHA}" ]
   then
-    echo "Assigning branch ${BRANCH_NAME} to commit ${NEEDS_BRANCH} based on marker in ${COMMIT}"
-    git push --force-with-lease "${REMOTE}" ${NEEDS_BRANCH}:refs/heads/"${BRANCH_NAME}"
+    echo "Assigning branch ${BRANCH_NAME} to commit ${SHA} based on marker in ${COMMIT}"
+    git push --force-with-lease "${REMOTE}" ${SHA}:refs/heads/"${BRANCH_NAME}"
   else
     echo "Not updating unchanged branch ${BRANCH_NAME}"
   fi
-  NEEDS_BRANCH=""
+  if ${SINGLE}
+  then
+    break
+  fi
 done
