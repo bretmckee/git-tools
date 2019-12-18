@@ -57,7 +57,6 @@ func (c *Client) CreatePullRequest(npr *github.NewPullRequest) (*github.PullRequ
 }
 
 func (c *Client) ChangePullRequestBase(num int, ref string) error {
-	glog.Warningf("ChangePullRequestBase returning unchanged pr %d", num)
 	pr, err := c.PullRequest(num)
 	if err != nil {
 		return fmt.Errorf("Failed to get pr after updating base for %d: %v", num, err)
