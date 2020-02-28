@@ -11,10 +11,12 @@
 # Copyright (c) 2017 William Chargin. Released under the MIT license.
 # see https://wchargin.github.io/posts/managing-dependent-pull-requests
 
-SINGLE=${SINGLE:false}
-DIRECTIVE='bret.mckee-branch'  # any regex metacharacters should be escaped
+set -x
+
+SINGLE=${SINGLE:-false}
+DIRECTIVE='bretmckee-branch'  # any regex metacharacters should be escaped
 SKIP='wip'
-BRANCH_PREFIX='bret.mckee/'
+BRANCH_PREFIX='bretmckee/'
 
 REMOTE=${1:-origin}
 PARENT_BRANCH=${2:-master}
