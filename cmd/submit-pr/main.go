@@ -78,7 +78,7 @@ func main() {
 		dryRun      = flag.Bool("dry-run", false, "Dry Run mode -- no pull requests will be created")
 		force       = flag.Bool("force", false, "Submit even if not fully approved.")
 		login       = flag.String("login", "", "Login of the user to submit for.")
-		pr          = flag.Int("pr", 0, "id of the closed pull request to rebase around")
+		pr          = flag.Int("pr", 0, "id of the pull request to submit")
 		sourceOwner = flag.String("source-owner", "", "Name of the owner (user or org) of the repo to create the commit in.")
 		sourceRepo  = flag.String("source-repo", "", "Name of repo to create the commit in.")
 		token       = flag.String("token", "", "github auth token to use (also checks environment GITHUB_TOKEN")
