@@ -130,11 +130,11 @@ func main() {
 		maxCreates  = flag.Int("max-creates", 10, "Maximum number of pull requests to create")
 		sourceOwner = flag.String("source-owner", "", "Name of the owner (user or org) of the repo to create the commit in.")
 		sourceRepo  = flag.String("source-repo", "", "Name of repo to create the commit in.")
-		token       = flag.String("token", "", "github auth token to use (also checks environment GITHUB_AUTH_TOKEN")
+		token       = flag.String("token", "", "github auth token to use (also checks environment GITHUB_TOKEN")
 	)
 	flag.Parse()
 	if *token == "" {
-		*token = os.Getenv("GITHUB_AUTH_TOKEN")
+		*token = os.Getenv("GITHUB_TOKEN")
 	}
 	if *token == "" {
 		glog.Exit("Unauthorized: No token present")
