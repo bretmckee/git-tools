@@ -2,8 +2,19 @@
 set -e
 set -o pipefail
 
+LOGIN=${LOGIN:-bretmckee}
+SOURCE_OWNER=${SOURCE_OWNER:-quattronetworks}
+SOURCE_REPO=${SOURCE_REPO:-quake}
+
 VERBOSITY=1
 THRESHOLD=INFO
+
+# check for the github cli.
+if ! hub version > /dev/null 2>&1
+then
+  echo "The github cli 'hub' was not found. See https://github.com/github/hub for installation instructions" 2>&1
+  exit 1
+fi
 
 MASTER=master
 ORIG_BRANCH=$(git rev-parse --abbrev-ref HEAD)
@@ -16,9 +27,9 @@ do
   PR_BRANCH=$(hub pr show -f "%H" ${PR})
   git checkout -q ${PR_BRANCH}
   # Wait for tests then press the submit button
-  submit-pr --source-owner=hpe-hcss --source-repo=cluster-api-provider-glhc --login=bretmckee  --stderrthreshold=${THRESHOLD} -v=${VERBOSITY} --pr=${PR}
+  submit-pr  --source-owner=${SOURCE_OWNER} --source-repo=${SOURCE_REPO} --login=${LOGIN} --stderrthreshold=${THRESHOLD} -v=${VERBOSITY} --pr=${PR}
   # change the base of any PR whose base is this branch to master
-  rebase-prs --source-owner=hpe-hcss --source-repo=cluster-api-provider-glhc --login=bretmckee  --stderrthreshold=${THRESHOLD} -v=${VERBOSITY} --pr=${PR}
+  rebase-prs --source-owner=${SOURCE_OWNER} --source-repo=${SOURCE_REPO} --login=${LOGIN} --stderrthreshold=${THRESHOLD} -v=${VERBOSITY} --pr=${PR}
   # clean up the local branch
   git checkout -q ${ORIG_BRANCH}
   git fetch origin ${MASTER}:${MASTER}
