@@ -19,6 +19,9 @@ func createPR(r *repodata.RepoData, branch, base, oldest, newest string, dryRun 
 	}
 	glog.V(2).Infof("Oldest Commit: %# v\n", pretty.Formatter(*o))
 	values := regexp.MustCompile("[\n]+").Split(*o.Message, 2)
+	if len(values) != 2 {
+		return fmt.Errorf("CreatePR failed to split the message for commit %s (it probably does not have a body)", oldest)
+	}
 
 	npr := &github.NewPullRequest{
 		Title:               github.String(values[0]),
@@ -83,7 +86,7 @@ func createPRs(r *repodata.RepoData, tipBranch, baseBranch string, maxCreates in
 	if err != nil {
 		return fmt.Errorf("Get commit chain failed: %v", err)
 	}
-	submitted := 0
+	created := 0
 	prev := ""
 	base := baseBranch
 	for _, commit := range chain {
@@ -107,13 +110,13 @@ func createPRs(r *repodata.RepoData, tipBranch, baseBranch string, maxCreates in
 			prev = ""
 			continue
 		}
-		if submitted >= maxCreates {
+		if created >= maxCreates {
 			return fmt.Errorf("maximum number of pull requests (%d) created, skipping creation for branch %s", maxCreates, *branch.Name)
 		}
 		if err := createPR(r, *branch.Name, base, prev, commit, dryRun); err != nil {
 			return fmt.Errorf("failed to create pr: %v", err)
 		}
-		submitted += 1
+		created += 1
 		base = *branch.Name
 		prev = ""
 	}
@@ -126,7 +129,7 @@ func main() {
 		baseBranch  = flag.String("base", "master", "Base Branch")
 		branch      = flag.String("branch", "", "Starting Branch")
 		dryRun      = flag.Bool("dry-run", false, "Dry Run mode -- no pull requests will be created")
-		login       = flag.String("login", "", "Login of the user to submit for.")
+		login       = flag.String("login", "", "Login of the user to create for.")
 		maxCreates  = flag.Int("max-creates", 10, "Maximum number of pull requests to create")
 		sourceOwner = flag.String("source-owner", "", "Name of the owner (user or org) of the repo to create the commit in.")
 		sourceRepo  = flag.String("source-repo", "", "Name of repo to create the commit in.")
@@ -152,7 +155,7 @@ func main() {
 	}
 
 	if err := createPRs(r, *branch, *baseBranch, *maxCreates, *dryRun); err != nil {
-		glog.Exitf("submitPRs failed: %v", err)
+		glog.Exitf("createPRs failed: %v", err)
 	}
 
 }
