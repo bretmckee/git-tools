@@ -16,6 +16,12 @@ then
   exit 1
 fi
 
+if [ -z ${GITHUB_TOKEN} ]
+then
+  echo "GITHUB_TOKEN must be set for this to work" 2>&1
+  exit 1
+fi
+
 MASTER=master
 ORIG_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 while [ $# -gt 0 ]
@@ -29,7 +35,7 @@ do
   # Wait for tests then press the submit button
   submit-pr  --source-owner=${SOURCE_OWNER} --source-repo=${SOURCE_REPO} --login=${LOGIN} --stderrthreshold=${THRESHOLD} -v=${VERBOSITY} --pr=${PR}
   # change the base of any PR whose base is this branch to master
-  rebase-prs --source-owner=${SOURCE_OWNER} --source-repo=${SOURCE_REPO} --login=${LOGIN} --stderrthreshold=${THRESHOLD} -v=${VERBOSITY} --pr=${PR}
+  # rebase-prs --source-owner=${SOURCE_OWNER} --source-repo=${SOURCE_REPO} --login=${LOGIN} --stderrthreshold=${THRESHOLD} -v=${VERBOSITY} --pr=${PR}
   # clean up the local branch
   git checkout -q ${ORIG_BRANCH}
   git fetch origin ${MASTER}:${MASTER}
