@@ -1,2 +1,5 @@
-*~
 *.exe
+*~
+cmd/create-reviews/create-reviews
+cmd/rebase-prs/rebase-prs
+cmd/submit-pr/submit-pr
