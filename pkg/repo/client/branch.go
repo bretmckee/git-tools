@@ -9,16 +9,20 @@ import (
 )
 
 func (c *Client) Branches() ([]*github.Branch, error) {
-	o := &github.ListOptions{}
-	branches, resp, err := c.client.Repositories.ListBranches(c.ctx, c.owner, c.repo, o)
-	if err != nil {
-		return nil, fmt.Errorf("Failed to list branches: %v", err)
-	}
-	if glog.V(3) {
-		for i, b := range branches {
-			glog.Infof("branch %d: %# v\n", i, pretty.Formatter(*b))
+	var branches []*github.Branch
+	for thisPage, lastPage := 1, 1; thisPage <= lastPage; thisPage++ {
+		glog.V(2).Infof("loading branches page %d", thisPage)
+		o := &github.ListOptions{Page: thisPage}
+		page, resp, err := c.client.Repositories.ListBranches(c.ctx, c.owner, c.repo, o)
+		if err != nil {
+			return nil, fmt.Errorf("Failed to list branches: %v", err)
 		}
-		glog.Infof("resp=%# v\n", resp)
+		for i, b := range page {
+			glog.V(3).Infof("branch %d: %# v\n", i, pretty.Formatter(*b))
+			branches = append(branches, b)
+		}
+		glog.V(3).Infof("resp=%# v\n", resp)
+		lastPage = resp.LastPage
 	}
 	return branches, nil
 }
