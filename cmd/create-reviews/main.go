@@ -63,7 +63,7 @@ func findBranch(baseBranch string, branches []*github.Branch) (*github.Branch, e
 
 // createPRs createa any needed Pull Requests for commits in the range
 // baseBranch...tipBranch.
-func createPRs(r *repodata.RepoData, tipBranch, baseBranch string, maxCreates int, dryRun bool) error {
+func createPRs(r *repodata.RepoData, tipBranch, baseBranch string, maxCreates int, includeBranch, dryRun bool) error {
 	b, err := r.Branch(tipBranch)
 	if err != nil {
 		return fmt.Errorf("failed to get tip branch %q: %v", tipBranch, err)
@@ -91,6 +91,10 @@ func createPRs(r *repodata.RepoData, tipBranch, baseBranch string, maxCreates in
 	base := baseBranch
 	for _, commit := range chain {
 		glog.V(2).Infof("examining commit %s", commit)
+		if commit == *b.Commit.SHA && !includeBranch {
+			glog.V(2).Infof("skipping tip branch %s", commit)
+			return nil
+		}
 		if prev == "" {
 			glog.V(2).Infof("setting prev to commit %s", commit)
 			prev = commit
@@ -129,14 +133,15 @@ func createPRs(r *repodata.RepoData, tipBranch, baseBranch string, maxCreates in
 
 func main() {
 	var (
-		baseBranch  = flag.String("base", "master", "Base Branch")
-		branch      = flag.String("branch", "", "Starting Branch")
-		dryRun      = flag.Bool("dry-run", false, "Dry Run mode -- no pull requests will be created")
-		login       = flag.String("login", "", "Login of the user to create for.")
-		maxCreates  = flag.Int("max-creates", 10, "Maximum number of pull requests to create")
-		sourceOwner = flag.String("source-owner", "", "Name of the owner (user or org) of the repo to create the commit in.")
-		sourceRepo  = flag.String("source-repo", "", "Name of repo to create the commit in.")
-		token       = flag.String("token", "", "github auth token to use (also checks environment GITHUB_TOKEN")
+		baseBranch    = flag.String("base", "master", "Base Branch")
+		branch        = flag.String("branch", "", "Starting Branch")
+		dryRun        = flag.Bool("dry-run", false, "Dry Run mode -- no pull requests will be created")
+		includeBranch = flag.Bool("include-branch", false, "Create a PR for --branch")
+		login         = flag.String("login", "", "Login of the user to create for.")
+		maxCreates    = flag.Int("max-creates", 10, "Maximum number of pull requests to create")
+		sourceOwner   = flag.String("source-owner", "", "Name of the owner (user or org) of the repo to create the commit in.")
+		sourceRepo    = flag.String("source-repo", "", "Name of repo to create the commit in.")
+		token         = flag.String("token", "", "github auth token to use (also checks environment GITHUB_TOKEN")
 	)
 	flag.Parse()
 	if *token == "" {
@@ -157,7 +162,7 @@ func main() {
 		glog.Exitf("failed to create repodata: %v", err)
 	}
 
-	if err := createPRs(r, *branch, *baseBranch, *maxCreates, *dryRun); err != nil {
+	if err := createPRs(r, *branch, *baseBranch, *maxCreates, *includeBranch, *dryRun); err != nil {
 		glog.Exitf("createPRs failed: %v", err)
 	}
 
