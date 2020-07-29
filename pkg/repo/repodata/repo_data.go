@@ -25,7 +25,7 @@ func Create(sourceOwner, sourceRepo, login, token string) (*RepoData, error) {
 	return r, nil
 }
 
-const MaxChainLength = 100
+const MaxChainLength = 150
 
 func (r *RepoData) CommitChain(pos, end string) ([]string, error) {
 	var chain []string

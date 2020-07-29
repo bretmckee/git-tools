@@ -90,12 +90,15 @@ func createPRs(r *repodata.RepoData, tipBranch, baseBranch string, maxCreates in
 	prev := ""
 	base := baseBranch
 	for _, commit := range chain {
+		glog.V(2).Infof("examining commit %s", commit)
 		if prev == "" {
+			glog.V(2).Infof("setting prev to commit %s", commit)
 			prev = commit
 		}
 		branches, ok := r.BranchBySHA[commit]
 		if !ok {
 			// This commit does not represent a branch
+			glog.V(2).Infof("commit %s does not represent a branch", commit)
 			continue
 		}
 		branch, err := findBranch(baseBranch, branches)

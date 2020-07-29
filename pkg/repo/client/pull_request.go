@@ -28,10 +28,13 @@ func (c *Client) PullRequest(num int) (*github.PullRequest, error) {
 	return pr, nil
 }
 
-func (c *Client) MergePullRequest(num int, sha, msg string) (*github.PullRequest, error) {
+func (c *Client) MergePullRequest(num int, sha, method, msg string) (*github.PullRequest, error) {
 	o := &github.PullRequestOptions{
 		SHA:         sha,
-		MergeMethod: "rebase",
+		MergeMethod: method,
+	}
+	if glog.V(3) {
+		glog.Infof("merge PR %d o: %# v\n", num, pretty.Formatter(*o))
 	}
 	res, resp, err := c.client.PullRequests.Merge(c.ctx, c.owner, c.repo, num, msg, o)
 	if err != nil {

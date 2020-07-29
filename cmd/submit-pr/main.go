@@ -11,7 +11,7 @@ import (
 	"github.com/google/go-github/v28/github"
 )
 
-func submitPR(c *client.Client, dryRun, force bool, baseBranch string, number int) error {
+func submitPR(c *client.Client, dryRun, force bool, baseBranch string, number int, method string) error {
 	const retrySeconds = 60
 	pr, err := c.PullRequest(number)
 	if err != nil {
@@ -65,7 +65,9 @@ func submitPR(c *client.Client, dryRun, force bool, baseBranch string, number in
 		glog.Warningf("skipping submission of %d because a dry run was requested", number)
 		return nil
 	}
-	if _, err := c.MergePullRequest(number, pr.GetHead().GetSHA(), ""); err != nil {
+	// TODO(bretmckee): Consider adding a way to specify a message.
+	msg := ""
+	if _, err := c.MergePullRequest(number, pr.GetHead().GetSHA(), method, msg); err != nil {
 		return fmt.Errorf("failed to submit PR %d: %v", number, err)
 	}
 	glog.Infof("Successfully submitted %d", number)
@@ -78,6 +80,7 @@ func main() {
 		dryRun      = flag.Bool("dry-run", false, "Dry Run mode -- no pull requests will be created")
 		force       = flag.Bool("force", false, "Submit even if not fully approved.")
 		login       = flag.String("login", "", "Login of the user to submit for.")
+		method      = flag.String("method", "squash", "github merge method -- [merge|rebase|squash]")
 		pr          = flag.Int("pr", 0, "id of the pull request to submit")
 		sourceOwner = flag.String("source-owner", "", "Name of the owner (user or org) of the repo to create the commit in.")
 		sourceRepo  = flag.String("source-repo", "", "Name of repo to create the commit in.")
@@ -98,7 +101,7 @@ func main() {
 	}
 
 	c := client.Create(*sourceOwner, *sourceRepo, *login, *token)
-	if err := submitPR(c, *dryRun, *force, *baseBranch, *pr); err != nil {
+	if err := submitPR(c, *dryRun, *force, *baseBranch, *pr, *method); err != nil {
 		glog.Exitf("submitPR failed: %v", err)
 	}
 }

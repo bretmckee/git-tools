@@ -1,4 +1,5 @@
 #! /bin/bash
+set -x
 set -e
 set -o pipefail
 
@@ -6,7 +7,7 @@ LOGIN=${LOGIN:-bretmckee}
 SOURCE_OWNER=${SOURCE_OWNER:-quattronetworks}
 SOURCE_REPO=${SOURCE_REPO:-quake}
 
-VERBOSITY=1
+VERBOSITY=3
 THRESHOLD=INFO
 
 # check for the github cli.
@@ -24,10 +25,14 @@ fi
 
 MASTER=master
 ORIG_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+# make sure the source branch is current on the server
+git push --force
 while [ $# -gt 0 ]
 do
   PR=${1}
   shift
+  echo "Processing ${PR}"
+  # make sure the branch to submit is current on the server
   SINGLE=true git-push-branches
   PR_SHA=$(hub pr show -f "%sH" ${PR})
   PR_BRANCH=$(hub pr show -f "%H" ${PR})
@@ -35,7 +40,7 @@ do
   # Wait for tests then press the submit button
   submit-pr  --source-owner=${SOURCE_OWNER} --source-repo=${SOURCE_REPO} --login=${LOGIN} --stderrthreshold=${THRESHOLD} -v=${VERBOSITY} --pr=${PR}
   # change the base of any PR whose base is this branch to master
-  # rebase-prs --source-owner=${SOURCE_OWNER} --source-repo=${SOURCE_REPO} --login=${LOGIN} --stderrthreshold=${THRESHOLD} -v=${VERBOSITY} --pr=${PR}
+  rebase-prs --source-owner=${SOURCE_OWNER} --source-repo=${SOURCE_REPO} --login=${LOGIN} --stderrthreshold=${THRESHOLD} -v=${VERBOSITY} --pr=${PR}
   # clean up the local branch
   git checkout -q ${ORIG_BRANCH}
   git fetch origin ${MASTER}:${MASTER}

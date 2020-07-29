@@ -24,7 +24,7 @@ type Repo interface {
 	PullRequest(num int) (*github.PullRequest, error)
 
 	// MergePullRequest
-	MergePullRequest(num int, sha, msg string) (*github.PullRequest, error)
+	MergePullRequest(num int, sha, method, msg string) (*github.PullRequest, error)
 
 	//ChangePullRequestBase changes the base of pull request `num` to be `ref`.
 	ChangePullRequestBase(num int, ref string) error
