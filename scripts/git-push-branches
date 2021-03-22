@@ -17,9 +17,10 @@ SINGLE=${SINGLE:-false}
 DIRECTIVE='bretmckee-branch'  # any regex metacharacters should be escaped
 SKIP='wip'
 BRANCH_PREFIX='bretmckee/'
+DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')
 
 REMOTE=${1:-origin}
-PARENT_BRANCH=${2:-master}
+PARENT_BRANCH=${2:-${DEFAULT_BRANCH}}
 
 target_branch() {
     directive="$( \
