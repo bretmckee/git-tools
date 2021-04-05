@@ -37,11 +37,25 @@ func (r *RepoData) CommitChain(pos, end string) ([]string, error) {
 		if err != nil {
 			return nil, fmt.Errorf("GetCommitChain failed to get commit: %v", err)
 		}
+		next := *commit.Parents[0].SHA
+		// This code doesn't handl commits with multiple parents unless one of the
+		// parents if the commit is end.
 		if parents := len(commit.Parents); parents != 1 {
-			return nil, fmt.Errorf("GetCommitChain: commit %s has %d parents", pos, parents)
+			next = ""
+			for _, p := range commit.Parents {
+				if *p.SHA != end {
+					continue
+				}
+				glog.V(1).Infof("GetCommitChain: found end in multi-parent commit %s", *commit.SHA)
+				next = *p.SHA
+				break
+			}
+			if next == "" {
+				return nil, fmt.Errorf("GetCommitChain: commit %s has %d parents", pos, parents)
+			}
 		}
 		chain = append(chain, pos)
-		pos = *commit.Parents[0].SHA
+		pos = next
 	}
 
 	for left, right := 0, len(chain)-1; left < right; left, right = left+1, right-1 {
