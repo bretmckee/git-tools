@@ -9,7 +9,41 @@ import (
 	"github.com/bretmckee/git-tools/pkg/repo/client"
 	"github.com/golang/glog"
 	"github.com/google/go-github/v28/github"
+	"github.com/kr/pretty"
 )
+
+const (
+	maxCommitChainLength = 20
+)
+
+func submitMsg(c *client.Client, prBody string, first, last string) (string, error) {
+	msg := ""
+	l := 0
+	glog.V(2).Infof("submitMsg begins first=%s, last=%s", first, last)
+	for pos := first; pos != last; l++ {
+		commit, err := c.Commit(pos)
+		if err != nil {
+			return "", fmt.Errorf("submitMsg: failed to retrieve commit: %v", err)
+		}
+		glog.V(2).Infof("submitMsg processes commit: %s", pretty.Sprintf("%# v", commit))
+		if parents := len(commit.Parents); parents != 1 {
+			return "", fmt.Errorf("submitMsg: commit %s has %d parents", pos, parents)
+		}
+
+		msg = "* " + commit.GetMessage() + "\n\n" + msg
+		glog.V(2).Infof("after commit %s, msg=[%v]", pos, msg)
+		pos = *commit.Parents[0].SHA
+		if l >= maxCommitChainLength {
+			return "", fmt.Errorf("submitMsg: max chain length (%d) exceeded", maxCommitChainLength)
+		}
+	}
+
+	// If there are fewer than two commits, just use the pr body as the message.
+	if l < 2 {
+		return prBody, nil
+	}
+	return msg, nil
+}
 
 func submitPR(c *client.Client, dryRun, force bool, baseBranch string, number int, method string) error {
 	const retrySeconds = 60
@@ -51,6 +85,10 @@ func submitPR(c *client.Client, dryRun, force bool, baseBranch string, number in
 		if status.GetState() != "pending" {
 			break
 		}
+		if force {
+			glog.Warningf("bPR is pending, but not waiting because force was specified")
+			break
+		}
 		glog.Warningf("pr %d status is pending: waiting %d seconds", number, retrySeconds)
 		time.Sleep(time.Second * retrySeconds)
 	}
@@ -61,12 +99,15 @@ func submitPR(c *client.Client, dryRun, force bool, baseBranch string, number in
 		}
 		glog.Warningf("because force was specified, ignoring error %v", err)
 	}
+	// TODO(bretmckee): Consider adding a way to specify a message.
+	msg, err := submitMsg(c, *pr.Body, pr.GetHead().GetSHA(), pr.GetBase().GetSHA())
+	if err != nil {
+		return fmt.Errorf("submitPR failed to build summitMsg: %v", err)
+	}
 	if dryRun {
 		glog.Warningf("skipping submission of %d because a dry run was requested", number)
 		return nil
 	}
-	// TODO(bretmckee): Consider adding a way to specify a message.
-	msg := ""
 	if _, err := c.MergePullRequest(number, pr.GetHead().GetSHA(), method, msg); err != nil {
 		return fmt.Errorf("failed to submit PR %d: %v", number, err)
 	}
