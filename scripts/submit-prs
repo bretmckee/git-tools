@@ -6,6 +6,8 @@ set -o pipefail
 LOGIN=${LOGIN:-bretmckee}
 SOURCE_OWNER=${SOURCE_OWNER:-quattronetworks}
 SOURCE_REPO=${SOURCE_REPO:-quake}
+DRY_RUN=
+FORCE=
 
 VERBOSITY=3
 THRESHOLD=INFO
@@ -38,12 +40,12 @@ do
   PR_BRANCH=$(hub pr show -f "%H" ${PR})
   git checkout -q ${PR_BRANCH}
   # Wait for tests then press the submit button
-  submit-pr  --source-owner=${SOURCE_OWNER} --source-repo=${SOURCE_REPO} --login=${LOGIN} --stderrthreshold=${THRESHOLD} -v=${VERBOSITY} --pr=${PR}
+  submit-pr ${FORCE} ${DRY_RUN} --source-owner=${SOURCE_OWNER} --source-repo=${SOURCE_REPO} --login=${LOGIN} --stderrthreshold=${THRESHOLD} -v=${VERBOSITY} --pr=${PR}
   # change the base of any PR whose base is this branch to master
-  rebase-prs --source-owner=${SOURCE_OWNER} --source-repo=${SOURCE_REPO} --login=${LOGIN} --stderrthreshold=${THRESHOLD} -v=${VERBOSITY} --pr=${PR}
+  rebase-prs ${DRY_RUN} --source-owner=${SOURCE_OWNER} --source-repo=${SOURCE_REPO} --login=${LOGIN} --stderrthreshold=${THRESHOLD} -v=${VERBOSITY} --pr=${PR}
   # clean up the local branch
   git checkout -q ${ORIG_BRANCH}
   git fetch origin ${MASTER}:${MASTER}
-  git rebase --onto ${MASTER} ${PR_SHA}
+  git rebase --onto ${MASTER} $(hub pr show -f "%sH" ${PR})
   git push --force
 done
