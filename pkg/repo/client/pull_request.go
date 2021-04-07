@@ -46,7 +46,7 @@ func (c *Client) MergePullRequest(num int, sha, method, msg string) (*github.Pul
 	}
 	pr, err := c.PullRequest(num)
 	if err != nil {
-		return nil, fmt.Errorf("Failed to get pr after updating base for %d: %v", num, err)
+		return nil, fmt.Errorf("Failed to get pr %d after merging: %v", num, err)
 	}
 	return pr, nil
 }
