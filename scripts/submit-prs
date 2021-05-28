@@ -6,6 +6,7 @@ set -o pipefail
 LOGIN=${LOGIN:-bretmckee}
 SOURCE_OWNER=${SOURCE_OWNER:-quattronetworks}
 SOURCE_REPO=${SOURCE_REPO:-quake}
+BASE_BRANCH=${BASE_BRANCH:-master}
 DRY_RUN=
 FORCE=
 
@@ -25,7 +26,6 @@ then
   exit 1
 fi
 
-MASTER=master
 ORIG_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 # make sure the source branch is current on the server
 git push --force
@@ -40,12 +40,15 @@ do
   PR_BRANCH=$(hub pr show -f "%H" ${PR})
   git checkout -q ${PR_BRANCH}
   # Wait for tests then press the submit button
-  submit-pr ${FORCE} ${DRY_RUN} --source-owner=${SOURCE_OWNER} --source-repo=${SOURCE_REPO} --login=${LOGIN} --stderrthreshold=${THRESHOLD} -v=${VERBOSITY} --pr=${PR}
-  # change the base of any PR whose base is this branch to master
+  submit-pr ${FORCE} ${DRY_RUN} --base ${BASE_BRANCH} --source-owner=${SOURCE_OWNER} --source-repo=${SOURCE_REPO} --login=${LOGIN} --stderrthreshold=${THRESHOLD} -v=${VERBOSITY} --pr=${PR}
+  # change the base of any PR whose base is this branch to ${BASE_BRANCH}
   rebase-prs ${DRY_RUN} --source-owner=${SOURCE_OWNER} --source-repo=${SOURCE_REPO} --login=${LOGIN} --stderrthreshold=${THRESHOLD} -v=${VERBOSITY} --pr=${PR}
   # clean up the local branch
   git checkout -q ${ORIG_BRANCH}
-  git fetch origin ${MASTER}:${MASTER}
-  git rebase --onto ${MASTER} $(hub pr show -f "%sH" ${PR})
+  # Some repos are configure to automatically delete the branch when the PR is
+  # submitted. The || /bin/true allows this command to fail
+  git branch -q -D ${PR_BRANCH} || /bin/true
+  git fetch origin ${BASE_BRANCH}:${BASE_BRANCH}
+  git rebase --onto ${BASE_BRANCH} $(hub pr show -f "%sH" ${PR})
   git push --force
 done
