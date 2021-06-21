@@ -26,9 +26,13 @@ then
   exit 1
 fi
 
-ORIG_BRANCH=$(git rev-parse --abbrev-ref HEAD)
+# make sure that the base branch is up to date
+git fetch origin ${BASE_BRANCH}:${BASE_BRANCH}
+
 # make sure the source branch is current on the server
 git push --force
+
+ORIG_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 while [ $# -gt 0 ]
 do
   PR=${1}
