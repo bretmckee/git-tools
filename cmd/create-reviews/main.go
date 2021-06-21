@@ -12,7 +12,7 @@ import (
 	"github.com/kr/pretty"
 )
 
-func createPR(r *repodata.RepoData, branch, base, oldest, newest string, dryRun bool) error {
+func createPR(r *repodata.RepoData, branch, base, oldest, newest string, draft, dryRun bool) error {
 	o, err := r.Commit(oldest)
 	if err != nil {
 		return fmt.Errorf("CreatePR failed to get oldest commit %s: %v", oldest, err)
@@ -29,7 +29,7 @@ func createPR(r *repodata.RepoData, branch, base, oldest, newest string, dryRun 
 		Base:                github.String(base),
 		Body:                github.String(values[1]),
 		MaintainerCanModify: github.Bool(false),
-		Draft:               github.Bool(true),
+		Draft:               github.Bool(draft),
 	}
 	glog.V(2).Infof("npr=%# v", pretty.Formatter(*npr))
 	if dryRun {
@@ -63,7 +63,7 @@ func findBranch(baseBranch string, branches []*github.Branch) (*github.Branch, e
 
 // createPRs createa any needed Pull Requests for commits in the range
 // baseBranch...tipBranch.
-func createPRs(r *repodata.RepoData, tipBranch, baseBranch string, maxCreates int, includeBranch, dryRun bool) error {
+func createPRs(r *repodata.RepoData, tipBranch, baseBranch string, maxCreates int, includeBranch, draft, dryRun bool) error {
 	b, err := r.Branch(tipBranch)
 	if err != nil {
 		return fmt.Errorf("failed to get tip branch %q: %v", tipBranch, err)
@@ -120,7 +120,7 @@ func createPRs(r *repodata.RepoData, tipBranch, baseBranch string, maxCreates in
 		if created >= maxCreates {
 			return fmt.Errorf("maximum number of pull requests (%d) created, skipping creation for branch %s", maxCreates, *branch.Name)
 		}
-		if err := createPR(r, *branch.Name, base, prev, commit, dryRun); err != nil {
+		if err := createPR(r, *branch.Name, base, prev, commit, draft, dryRun); err != nil {
 			return fmt.Errorf("failed to create pr: %v", err)
 		}
 		created += 1
@@ -135,6 +135,7 @@ func main() {
 	var (
 		baseBranch    = flag.String("base", "master", "Base Branch")
 		branch        = flag.String("branch", "", "Starting Branch")
+		draft         = flag.Bool("draft", true, "create draft PR")
 		dryRun        = flag.Bool("dry-run", false, "Dry Run mode -- no pull requests will be created")
 		includeBranch = flag.Bool("include-branch", false, "Create a PR for --branch")
 		login         = flag.String("login", "", "Login of the user to create for.")
@@ -162,7 +163,7 @@ func main() {
 		glog.Exitf("failed to create repodata: %v", err)
 	}
 
-	if err := createPRs(r, *branch, *baseBranch, *maxCreates, *includeBranch, *dryRun); err != nil {
+	if err := createPRs(r, *branch, *baseBranch, *maxCreates, *includeBranch, *draft, *dryRun); err != nil {
 		glog.Exitf("createPRs failed: %v", err)
 	}
 
