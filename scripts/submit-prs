@@ -4,13 +4,13 @@ set -e
 set -o pipefail
 
 LOGIN=${LOGIN:-bretmckee}
-SOURCE_OWNER=${SOURCE_OWNER:-quattronetworks}
-SOURCE_REPO=${SOURCE_REPO:-quake}
-BASE_BRANCH=${BASE_BRANCH:-master}
+SOURCE_OWNER=${SOURCE_OWNER:-hpe-hcss}
+SOURCE_REPO=${SOURCE_REPO:-$(basename `git rev-parse --show-toplevel`)}
+BASE_BRANCH=${BASE_BRANCH:-$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')}
 DRY_RUN=
 FORCE=
 
-VERBOSITY=3
+VERBOSITY=0
 THRESHOLD=INFO
 
 # check for the github cli.
