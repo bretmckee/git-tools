@@ -155,7 +155,7 @@ func main() {
 		glog.Exitf("You need to specify a non-empty value for the flags `-source-owner (=%q)`, `-source-repo (=%q)` and `-login (=%q)`", *sourceOwner, *sourceRepo, *login)
 	}
 	if *branch == "" || *baseBranch == "" {
-		glog.Exit("Both branch and base must not be specified")
+		glog.Exit("Both branch and base must be specified")
 	}
 
 	r, err := repodata.Create(*sourceOwner, *sourceRepo, *login, *token)
