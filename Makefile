@@ -14,7 +14,7 @@ $(BIN_DIR) $(INSTALL_DIR):
 	mkdir -p $@
 
 ${PROGS}:
-	cd cmd/$@ && CGO_ENABLED=0 GOOS=$(GOOS) GOARCH=amd64 go build -ldflags "-X main.buildVersion=$(VERSION) -X main.buildTime=$(BUILD_TIME)" -o ${BIN_DIR}/$@
+	cd cmd/$@ && CGO_ENABLED=0 go build -ldflags "-X main.buildVersion=$(VERSION) -X main.buildTime=$(BUILD_TIME)" -o ${BIN_DIR}/$@
 
 install: $(PROGS) $(INSTALL_DIR)
 	cp $(addprefix $(BIN_DIR)/,$(PROGS)) $(INSTALL_DIR)
