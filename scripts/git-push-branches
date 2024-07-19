@@ -98,7 +98,7 @@ do
     echo "Assigning branch ${BRANCH_NAME} to commit ${SHA} based on marker in ${COMMIT}"
     git push --force-with-lease "${REMOTE}" ${SHA}:refs/heads/"${BRANCH_NAME}"
   else
-    echo "Not updating unchanged branch ${BRANCH_NAME}"
+    echo "Not updating unchanged branch ${BRANCH_NAME} with command " git push --force-with-lease "${REMOTE}" ${SHA}:refs/heads/"${BRANCH_NAME}"
   fi
   if ${SINGLE}
   then
