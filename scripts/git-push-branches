@@ -19,8 +19,8 @@ SKIP='wip'
 BRANCH_PREFIX='bretmckee/'
 DEFAULT_BRANCH=$(basename $(git symbolic-ref --short refs/remotes/origin/HEAD))
 
-REMOTE=${1:-origin}
-PARENT_BRANCH=${2:-${DEFAULT_BRANCH}}
+PARENT_BRANCH=${1:-${DEFAULT_BRANCH}}
+REMOTE=${2:-origin}
 
 target_branch() {
     directive="$( \
