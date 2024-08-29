@@ -19,6 +19,13 @@ SKIP='wip'
 BRANCH_PREFIX='bretmckee/'
 DEFAULT_BRANCH=$(basename $(git symbolic-ref --short refs/remotes/origin/HEAD))
 
+
+# For now, require the user to specify the branch
+if [ $# -lt 1 ] ; then
+  echo "usage: $0 branch [remote]" 1>&2
+  exit 1
+fi
+
 PARENT_BRANCH=${1:-${DEFAULT_BRANCH}}
 REMOTE=${2:-origin}
 
