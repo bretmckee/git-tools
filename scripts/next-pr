@@ -1,0 +1,6 @@
+#! /bin/bash
+set -x -e -o pipefail
+
+git fetch -p origin develop:develop
+git rebase develop
+SINGLE=true git pb develop
