@@ -17,8 +17,7 @@ SINGLE=${SINGLE:-false}
 DIRECTIVE='bretmckee-branch'  # any regex metacharacters should be escaped
 SKIP='wip'
 BRANCH_PREFIX='bretmckee/'
-DEFAULT_BRANCH=$(basename $(git symbolic-ref --short refs/remotes/origin/HEAD))
-
+DEFAULT_REMOTE=origin
 
 # For now, require the user to specify the branch
 if [ $# -lt 1 ] ; then
@@ -26,8 +25,10 @@ if [ $# -lt 1 ] ; then
   exit 1
 fi
 
-PARENT_BRANCH=${1:-${DEFAULT_BRANCH}}
-REMOTE=${2:-origin}
+REMOTE=${2:-${DEFAULT_REMOTE}}
+DEFAULT_PARENT_BRANCH=$(basename $(git symbolic-ref --short refs/remotes/${REMOTE}/HEAD))
+
+PARENT_BRANCH=${1:-${DEFAULT_PARENT_BRANCH}}
 
 target_branch() {
     directive="$( \
