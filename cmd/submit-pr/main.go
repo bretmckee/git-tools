@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/bretmckee/git-tools/pkg/repo/client"
+	"github.com/bretmckee/git-tools/pkg/urls"
 	"github.com/golang/glog"
 	"github.com/google/go-github/v28/github"
 	"github.com/kr/pretty"
@@ -118,6 +119,7 @@ func submitPR(c *client.Client, dryRun, force bool, baseBranch string, number in
 func main() {
 	var (
 		baseBranch  = flag.String("base", "master", "Base branch")
+		baseURL     = flag.String("url", "", "GitHub Base URL")
 		dryRun      = flag.Bool("dry-run", false, "Dry Run mode -- no pull requests will be created")
 		force       = flag.Bool("force", false, "Submit even if not fully approved.")
 		login       = flag.String("login", "", "Login of the user to submit for.")
@@ -126,6 +128,7 @@ func main() {
 		sourceOwner = flag.String("source-owner", "", "Name of the owner (user or org) of the repo to create the commit in.")
 		sourceRepo  = flag.String("source-repo", "", "Name of repo to create the commit in.")
 		token       = flag.String("token", "", "github auth token to use (also checks environment GITHUB_TOKEN")
+		uploadURL   = flag.String("upload", "", "GitHub Upload URL")
 	)
 	flag.Parse()
 	if *token == "" {
@@ -141,7 +144,16 @@ func main() {
 		glog.Exit("An positive integer value must be specified for `-pr`")
 	}
 
-	c := client.Create(*sourceOwner, *sourceRepo, *login, *token)
+	b, u, err := urls.Get(*baseURL, *uploadURL)
+	if err != nil {
+		glog.Exitf("failed to get URLs: %v", err)
+	}
+
+	c, err := client.Create(b, u, *sourceOwner, *sourceRepo, *login, *token)
+	if err != nil {
+		glog.Exitf("failed to create client: %v", err)
+	}
+
 	if err := submitPR(c, *dryRun, *force, *baseBranch, *pr, *method); err != nil {
 		glog.Exitf("submitPR failed: %v", err)
 	}

@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/bretmckee/git-tools/pkg/repo"
 	"github.com/google/go-github/v28/github"
@@ -18,16 +19,21 @@ type Client struct {
 
 var _ repo.Repo = (*Client)(nil)
 
-func Create(owner, repo, login, token string) *Client {
+func Create(baseURL, uploadURL, owner, repo, login, token string) (*Client, error) {
 	ctx := context.Background()
 	ts := oauth2.StaticTokenSource(&oauth2.Token{AccessToken: token})
 	tc := oauth2.NewClient(ctx, ts)
+
+	client, err := github.NewEnterpriseClient(baseURL, uploadURL, tc)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create github client: %v", err)
+	}
 
 	return &Client{
 		owner:  owner,
 		repo:   repo,
 		login:  login,
 		ctx:    ctx,
-		client: github.NewClient(tc),
-	}
+		client: client,
+	}, nil
 }

@@ -17,8 +17,14 @@ type RepoData struct {
 	PrByNumber  map[int]*github.PullRequest
 }
 
-func Create(sourceOwner, sourceRepo, login, token string) (*RepoData, error) {
-	r := &RepoData{Repo: client.Create(sourceOwner, sourceRepo, login, token)}
+func Create(baseURL, uploadURL, sourceOwner, sourceRepo, login, token string) (*RepoData, error) {
+	c, err := client.Create(baseURL, uploadURL, sourceOwner, sourceRepo, login, token)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create client: %v", err)
+	}
+	r := &RepoData{
+		Repo: c,
+	}
 	if err := r.LoadData(); err != nil {
 		return nil, fmt.Errorf("failed to load data: %v", err)
 	}

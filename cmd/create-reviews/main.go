@@ -7,6 +7,7 @@ import (
 	"regexp"
 
 	"github.com/bretmckee/git-tools/pkg/repo/repodata"
+	"github.com/bretmckee/git-tools/pkg/urls"
 	"github.com/golang/glog"
 	"github.com/google/go-github/v28/github"
 	"github.com/kr/pretty"
@@ -134,6 +135,7 @@ func createPRs(r *repodata.RepoData, tipBranch, baseBranch string, maxCreates in
 func main() {
 	var (
 		baseBranch    = flag.String("base", "master", "Base Branch")
+		baseURL       = flag.String("url", "", "GitHub Base URL")
 		branch        = flag.String("branch", "", "Starting Branch")
 		draft         = flag.Bool("draft", true, "create draft PR")
 		dryRun        = flag.Bool("dry-run", false, "Dry Run mode -- no pull requests will be created")
@@ -143,6 +145,7 @@ func main() {
 		sourceOwner   = flag.String("source-owner", "", "Name of the owner (user or org) of the repo to create the commit in.")
 		sourceRepo    = flag.String("source-repo", "", "Name of repo to create the commit in.")
 		token         = flag.String("token", "", "github auth token to use (also checks environment GITHUB_TOKEN")
+		uploadURL     = flag.String("upload", "", "GitHub Upload URL")
 	)
 	flag.Parse()
 	if *token == "" {
@@ -158,7 +161,12 @@ func main() {
 		glog.Exit("Both branch and base must be specified")
 	}
 
-	r, err := repodata.Create(*sourceOwner, *sourceRepo, *login, *token)
+	b, u, err := urls.Get(*baseURL, *uploadURL)
+	if err != nil {
+		glog.Exitf("failed to get URLs: %v", err)
+	}
+
+	r, err := repodata.Create(b, u, *sourceOwner, *sourceRepo, *login, *token)
 	if err != nil {
 		glog.Exitf("failed to create repodata: %v", err)
 	}

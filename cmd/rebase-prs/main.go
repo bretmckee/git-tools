@@ -6,6 +6,7 @@ import (
 	"os"
 
 	"github.com/bretmckee/git-tools/pkg/repo/client"
+	"github.com/bretmckee/git-tools/pkg/urls"
 	"github.com/golang/glog"
 )
 
@@ -42,11 +43,13 @@ func rebasePRs(c *client.Client, dryRun bool, number int) error {
 func main() {
 	var (
 		dryRun      = flag.Bool("dry-run", false, "Dry Run mode -- no pull requests will be created")
+		baseURL     = flag.String("url", "", "GitHub Base URL")
 		login       = flag.String("login", "", "Login of the user to submit for.")
 		number      = flag.Int("pr", 0, "id of the closed pull request to rebase around")
 		sourceOwner = flag.String("source-owner", "", "Name of the owner (user or org) of the repo to create the commit in.")
 		sourceRepo  = flag.String("source-repo", "", "Name of repo to create the commit in.")
 		token       = flag.String("token", "", "github auth token to use (also checks environment GITHUB_TOKEN")
+		uploadURL   = flag.String("upload", "", "GitHub Upload URL")
 	)
 	flag.Parse()
 	if *token == "" {
@@ -62,7 +65,15 @@ func main() {
 		glog.Exit("An positive integer value must be specified for `-pr`")
 	}
 
-	c := client.Create(*sourceOwner, *sourceRepo, *login, *token)
+	b, u, err := urls.Get(*baseURL, *uploadURL)
+	if err != nil {
+		glog.Exitf("failed to get URLs: %v", err)
+	}
+
+	c, err := client.Create(b, u, *sourceOwner, *sourceRepo, *login, *token)
+	if err != nil {
+		glog.Exitf("failed to create client: %v", err)
+	}
 
 	if err := rebasePRs(c, *dryRun, *number); err != nil {
 		glog.Exitf("rebasePRs failed: %v", err)
