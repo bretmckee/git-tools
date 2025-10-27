@@ -1,7 +1,5 @@
 #! /bin/bash
-set -x
-set -e
-set -o pipefail
+set -x -e -o pipefail
 
 LOGIN=${LOGIN:-bretmckee}
 SOURCE_OWNER=${SOURCE_OWNER:-hpe-hcss}
