@@ -1,12 +1,17 @@
 #! /bin/bash
 set -x -e -o pipefail
 
-LOGIN=${LOGIN:-bretmckee}
-SOURCE_OWNER=${SOURCE_OWNER:-hpe-hcss}
-SOURCE_REPO=${SOURCE_REPO:-$(basename `git rev-parse --show-toplevel`)}
-BASE_BRANCH=${BASE_BRANCH:-$(git symbolic-ref refs/remotes/origin/HEAD | sed 's@^refs/remotes/origin/@@')}
 DRY_RUN=
 FORCE=
+LOGIN=${LOGIN:-bretmckee}
+REMOTE=${REMOTE:-origin}
+SOURCE_OWNER=${SOURCE_OWNER:-bretmckee}
+SOURCE_REPO=${SOURCE_REPO:-$(basename `git rev-parse --show-toplevel`)}
+URL=${URL:-https://api.github.com}
+export GITHUB_HOST=$(echo ${URL} | sed -e 's|https://\([^/]*\)/.*$|\1|')
+GITHUB_TOKEN=${TOKEN:-${GITHUB_TOKEN:-""}}
+
+BASE_BRANCH=${BASE_BRANCH:-$(git symbolic-ref refs/remotes/"${REMOTE}"/HEAD | sed "s@^refs/remotes/${REMOTE}/@@")}
 
 VERBOSITY=0
 THRESHOLD=INFO
@@ -18,14 +23,14 @@ then
   exit 1
 fi
 
-if [ -z ${GITHUB_TOKEN} ]
+if [ -z "${GITHUB_TOKEN}" ]
 then
   echo "GITHUB_TOKEN must be set for this to work" 2>&1
   exit 1
 fi
 
 # make sure that the base branch is up to date
-git fetch origin ${BASE_BRANCH}:${BASE_BRANCH}
+git fetch "${REMOTE}" "${BASE_BRANCH}":"${BASE_BRANCH}"
 
 # make sure the source branch is current on the server
 git push --force
@@ -33,24 +38,24 @@ git push --force
 ORIG_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 while [ $# -gt 0 ]
 do
-  PR=${1}
+  PR="${1}"
   shift
   echo "Processing ${PR}"
+  PR_BRANCH=$(hub pr show -f "%H" "${PR}")
   # make sure the branch to submit is current on the server
-  SINGLE=true git-push-branches
-  PR_SHA=$(hub pr show -f "%sH" ${PR})
-  PR_BRANCH=$(hub pr show -f "%H" ${PR})
-  git checkout -q ${PR_BRANCH}
+  SINGLE=true git-push-branches "${PR_BRANCH}" "${REMOTE}"
+  PR_SHA=$(hub pr show -f "%sH" "${PR}")
+  git checkout -q "${REMOTE}"/"${PR_BRANCH}"
   # Wait for tests then press the submit button
-  submit-pr ${FORCE} ${DRY_RUN} --base ${BASE_BRANCH} --source-owner=${SOURCE_OWNER} --source-repo=${SOURCE_REPO} --login=${LOGIN} --stderrthreshold=${THRESHOLD} -v=${VERBOSITY} --pr=${PR}
+  submit-pr ${FORCE} ${DRY_RUN} --base="${BASE_BRANCH}" --source-owner="${SOURCE_OWNER}" --source-repo="${SOURCE_REPO}" --login="${LOGIN}" --url="${URL}" --stderrthreshold="${THRESHOLD}" -v="${VERBOSITY}" --pr="${PR}"
   # change the base of any PR whose base is this branch to ${BASE_BRANCH}
-  rebase-prs ${DRY_RUN} --source-owner=${SOURCE_OWNER} --source-repo=${SOURCE_REPO} --login=${LOGIN} --stderrthreshold=${THRESHOLD} -v=${VERBOSITY} --pr=${PR}
+  rebase-prs ${DRY_RUN} --source-owner="${SOURCE_OWNER}" --source-repo="${SOURCE_REPO}" --login="${LOGIN}"  --url="${URL}" --stderrthreshold="${THRESHOLD}" -v="${VERBOSITY}" --pr="${PR}"
   # clean up the local branch
-  git checkout -q ${ORIG_BRANCH}
+  git checkout -q "${ORIG_BRANCH}"
   # Some repos are configure to automatically delete the branch when the PR is
   # submitted. The || /bin/true allows this command to fail
-  git branch -q -D ${PR_BRANCH} || /bin/true
-  git fetch origin ${BASE_BRANCH}:${BASE_BRANCH}
-  git rebase --onto ${BASE_BRANCH} $(hub pr show -f "%sH" ${PR})
-  git push --force
+  git branch -q -D "${REMOTE}"/"${PR_BRANCH}" || /bin/true
+  git fetch "${REMOTE}" "${BASE_BRANCH}":"${BASE_BRANCH}"
+  git rebase --onto "${BASE_BRANCH}" $(hub pr show -f "%sH" "${PR}")
+  git push --force "${REMOTE}"
 done

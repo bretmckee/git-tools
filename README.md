@@ -57,7 +57,19 @@ bretmckee-branch: update-readme
 * Look at the branch with Github to make sure it was properly created.
 
 ### Create a PR based on a commit message
-To Be Written.
+## For github.com accounts
+
+## For Enterprise accounts
+```bash
+create-reviews --logtostderr --draft=false --source-owner=bretmckee --login=bretmckee \
+--base=main --branch=bretmckee/develop \
+--source-repo=$(basename $(git rev-parse \
+--show-toplevel)) -token "${GITHUB_TOKEN}"
+```
 
 ### Submit a PR based on a commit message
-To Be Written.
+## For github.com accounts
+## For Enterprise accounts
+```bash
+REMOTE="<remote>" SOURCE_OWNER="<owner>" URL="https://<url>/api/v3" TOKEN="${GITHUB_ENTERPRISE_TOKEN}" submit-prs 13
+```
