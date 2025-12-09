@@ -38,3 +38,58 @@ func (c *Client) CheckRunsForRef(ref string, opts *github.ListCheckRunsOptions) 
 
 	return results, nil
 }
+
+// AggregatedStatus returns an overall status by checking both Check Runs and Combined Status APIs
+func (c *Client) AggregatedStatus(ref string) (string, error) {
+	checkRuns, err := c.CheckRunsForRef(ref, nil)
+	if err != nil {
+		return "", fmt.Errorf("Failed to get check runs: %v", err)
+	}
+
+	combinedStatus, err := c.CombinedStatus(ref)
+	if err != nil {
+		return "", fmt.Errorf("Failed to get combined status: %v", err)
+	}
+
+	hasCheckRuns := checkRuns != nil && checkRuns.Total != nil && *checkRuns.Total > 0
+	hasStatuses := combinedStatus != nil && combinedStatus.TotalCount != nil && *combinedStatus.TotalCount > 0
+
+	if !hasCheckRuns && !hasStatuses {
+		return "success", nil
+	}
+
+	if hasCheckRuns {
+		for _, run := range checkRuns.CheckRuns {
+			status := run.GetStatus()
+			if status == "queued" || status == "in_progress" || status == "waiting" || status == "requested" || status == "pending" {
+				return "pending", nil
+			}
+		}
+	}
+
+	if hasStatuses {
+		if combinedStatus.GetState() == "pending" {
+			return "pending", nil
+		}
+	}
+
+	if hasCheckRuns {
+		for _, run := range checkRuns.CheckRuns {
+			if run.GetStatus() == "completed" {
+				conclusion := run.GetConclusion()
+				if conclusion == "failure" || conclusion == "timed_out" || conclusion == "action_required" {
+					return "failure", nil
+				}
+			}
+		}
+	}
+
+	if hasStatuses {
+		state := combinedStatus.GetState()
+		if state == "failure" || state == "error" {
+			return "failure", nil
+		}
+	}
+
+	return "success", nil
+}

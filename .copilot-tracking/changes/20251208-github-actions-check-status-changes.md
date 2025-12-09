@@ -24,5 +24,9 @@ legacy commit status API.
   Runs API support
 - pkg/repo/client/status.go - Implemented CheckRunsForRef method with GitHub
   Check Runs API integration
+- pkg/repo/client/status.go - Implemented AggregatedStatus helper method to
+  combine Check Runs and Combined Status APIs
+- pkg/repo/client/status_test.go - Added comprehensive unit tests for
+  AggregatedStatus method covering all status scenarios
 
 ### Removed

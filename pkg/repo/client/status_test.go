@@ -201,3 +201,418 @@ func TestCheckRunsForRef_DefaultOptions(t *testing.T) {
 		t.Errorf("expected default filter %q to be applied", expectedFilter)
 	}
 }
+
+func TestAggregatedStatus(t *testing.T) {
+	tests := []struct {
+		name              string
+		checkRunsResponse string
+		statusResponse    string
+		checkRunsCode     int
+		statusCode        int
+		wantState         string
+		wantErr           bool
+	}{
+		{
+			name: "No checks configured returns success",
+			checkRunsResponse: `{
+				"total_count": 0,
+				"check_runs": []
+			}`,
+			statusResponse: `{
+				"state": "success",
+				"total_count": 0,
+				"statuses": []
+			}`,
+			checkRunsCode: http.StatusOK,
+			statusCode:    http.StatusOK,
+			wantState:     "success",
+			wantErr:       false,
+		},
+		{
+			name: "Check run queued returns pending",
+			checkRunsResponse: `{
+				"total_count": 1,
+				"check_runs": [
+					{
+						"id": 1,
+						"status": "queued",
+						"name": "test"
+					}
+				]
+			}`,
+			statusResponse: `{
+				"state": "success",
+				"total_count": 0,
+				"statuses": []
+			}`,
+			checkRunsCode: http.StatusOK,
+			statusCode:    http.StatusOK,
+			wantState:     "pending",
+			wantErr:       false,
+		},
+		{
+			name: "Check run in_progress returns pending",
+			checkRunsResponse: `{
+				"total_count": 1,
+				"check_runs": [
+					{
+						"id": 1,
+						"status": "in_progress",
+						"name": "test"
+					}
+				]
+			}`,
+			statusResponse: `{
+				"state": "success",
+				"total_count": 0,
+				"statuses": []
+			}`,
+			checkRunsCode: http.StatusOK,
+			statusCode:    http.StatusOK,
+			wantState:     "pending",
+			wantErr:       false,
+		},
+		{
+			name: "Combined status pending returns pending",
+			checkRunsResponse: `{
+				"total_count": 0,
+				"check_runs": []
+			}`,
+			statusResponse: `{
+				"state": "pending",
+				"total_count": 1,
+				"statuses": [
+					{
+						"state": "pending",
+						"context": "ci/test"
+					}
+				]
+			}`,
+			checkRunsCode: http.StatusOK,
+			statusCode:    http.StatusOK,
+			wantState:     "pending",
+			wantErr:       false,
+		},
+		{
+			name: "Check run failure returns failure",
+			checkRunsResponse: `{
+				"total_count": 1,
+				"check_runs": [
+					{
+						"id": 1,
+						"status": "completed",
+						"conclusion": "failure",
+						"name": "test"
+					}
+				]
+			}`,
+			statusResponse: `{
+				"state": "success",
+				"total_count": 0,
+				"statuses": []
+			}`,
+			checkRunsCode: http.StatusOK,
+			statusCode:    http.StatusOK,
+			wantState:     "failure",
+			wantErr:       false,
+		},
+		{
+			name: "Check run timed_out returns failure",
+			checkRunsResponse: `{
+				"total_count": 1,
+				"check_runs": [
+					{
+						"id": 1,
+						"status": "completed",
+						"conclusion": "timed_out",
+						"name": "test"
+					}
+				]
+			}`,
+			statusResponse: `{
+				"state": "success",
+				"total_count": 0,
+				"statuses": []
+			}`,
+			checkRunsCode: http.StatusOK,
+			statusCode:    http.StatusOK,
+			wantState:     "failure",
+			wantErr:       false,
+		},
+		{
+			name: "Check run action_required returns failure",
+			checkRunsResponse: `{
+				"total_count": 1,
+				"check_runs": [
+					{
+						"id": 1,
+						"status": "completed",
+						"conclusion": "action_required",
+						"name": "test"
+					}
+				]
+			}`,
+			statusResponse: `{
+				"state": "success",
+				"total_count": 0,
+				"statuses": []
+			}`,
+			checkRunsCode: http.StatusOK,
+			statusCode:    http.StatusOK,
+			wantState:     "failure",
+			wantErr:       false,
+		},
+		{
+			name: "Combined status failure returns failure",
+			checkRunsResponse: `{
+				"total_count": 0,
+				"check_runs": []
+			}`,
+			statusResponse: `{
+				"state": "failure",
+				"total_count": 1,
+				"statuses": [
+					{
+						"state": "failure",
+						"context": "ci/test"
+					}
+				]
+			}`,
+			checkRunsCode: http.StatusOK,
+			statusCode:    http.StatusOK,
+			wantState:     "failure",
+			wantErr:       false,
+		},
+		{
+			name: "Combined status error returns failure",
+			checkRunsResponse: `{
+				"total_count": 0,
+				"check_runs": []
+			}`,
+			statusResponse: `{
+				"state": "error",
+				"total_count": 1,
+				"statuses": [
+					{
+						"state": "error",
+						"context": "ci/test"
+					}
+				]
+			}`,
+			checkRunsCode: http.StatusOK,
+			statusCode:    http.StatusOK,
+			wantState:     "failure",
+			wantErr:       false,
+		},
+		{
+			name: "All checks successful returns success",
+			checkRunsResponse: `{
+				"total_count": 2,
+				"check_runs": [
+					{
+						"id": 1,
+						"status": "completed",
+						"conclusion": "success",
+						"name": "test"
+					},
+					{
+						"id": 2,
+						"status": "completed",
+						"conclusion": "success",
+						"name": "build"
+					}
+				]
+			}`,
+			statusResponse: `{
+				"state": "success",
+				"total_count": 1,
+				"statuses": [
+					{
+						"state": "success",
+						"context": "ci/legacy"
+					}
+				]
+			}`,
+			checkRunsCode: http.StatusOK,
+			statusCode:    http.StatusOK,
+			wantState:     "success",
+			wantErr:       false,
+		},
+		{
+			name: "Check run neutral does not block",
+			checkRunsResponse: `{
+				"total_count": 1,
+				"check_runs": [
+					{
+						"id": 1,
+						"status": "completed",
+						"conclusion": "neutral",
+						"name": "optional-check"
+					}
+				]
+			}`,
+			statusResponse: `{
+				"state": "success",
+				"total_count": 0,
+				"statuses": []
+			}`,
+			checkRunsCode: http.StatusOK,
+			statusCode:    http.StatusOK,
+			wantState:     "success",
+			wantErr:       false,
+		},
+		{
+			name: "Check run skipped does not block",
+			checkRunsResponse: `{
+				"total_count": 1,
+				"check_runs": [
+					{
+						"id": 1,
+						"status": "completed",
+						"conclusion": "skipped",
+						"name": "conditional-check"
+					}
+				]
+			}`,
+			statusResponse: `{
+				"state": "success",
+				"total_count": 0,
+				"statuses": []
+			}`,
+			checkRunsCode: http.StatusOK,
+			statusCode:    http.StatusOK,
+			wantState:     "success",
+			wantErr:       false,
+		},
+		{
+			name: "Mixed success with pending returns pending",
+			checkRunsResponse: `{
+				"total_count": 2,
+				"check_runs": [
+					{
+						"id": 1,
+						"status": "completed",
+						"conclusion": "success",
+						"name": "test"
+					},
+					{
+						"id": 2,
+						"status": "in_progress",
+						"name": "build"
+					}
+				]
+			}`,
+			statusResponse: `{
+				"state": "success",
+				"total_count": 0,
+				"statuses": []
+			}`,
+			checkRunsCode: http.StatusOK,
+			statusCode:    http.StatusOK,
+			wantState:     "pending",
+			wantErr:       false,
+		},
+		{
+			name: "Mixed success with failure returns failure",
+			checkRunsResponse: `{
+				"total_count": 2,
+				"check_runs": [
+					{
+						"id": 1,
+						"status": "completed",
+						"conclusion": "success",
+						"name": "test"
+					},
+					{
+						"id": 2,
+						"status": "completed",
+						"conclusion": "failure",
+						"name": "build"
+					}
+				]
+			}`,
+			statusResponse: `{
+				"state": "success",
+				"total_count": 0,
+				"statuses": []
+			}`,
+			checkRunsCode: http.StatusOK,
+			statusCode:    http.StatusOK,
+			wantState:     "failure",
+			wantErr:       false,
+		},
+		{
+			name:              "Check runs API error",
+			checkRunsResponse: `{"message": "Not Found"}`,
+			statusResponse: `{
+				"state": "success",
+				"total_count": 0,
+				"statuses": []
+			}`,
+			checkRunsCode: http.StatusNotFound,
+			statusCode:    http.StatusOK,
+			wantState:     "",
+			wantErr:       true,
+		},
+		{
+			name: "Combined status API error",
+			checkRunsResponse: `{
+				"total_count": 0,
+				"check_runs": []
+			}`,
+			statusResponse:    `{"message": "Internal Server Error"}`,
+			checkRunsCode:     http.StatusOK,
+			statusCode:        http.StatusInternalServerError,
+			wantState:         "",
+			wantErr:           true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/repos/test-owner/test-repo/commits/test-ref/check-runs" {
+					w.WriteHeader(tt.checkRunsCode)
+					fmt.Fprint(w, tt.checkRunsResponse)
+				} else if r.URL.Path == "/repos/test-owner/test-repo/commits/test-ref/status" {
+					w.WriteHeader(tt.statusCode)
+					fmt.Fprint(w, tt.statusResponse)
+				} else {
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+
+			client, err := github.NewEnterpriseClient(server.URL, server.URL, nil)
+			if err != nil {
+				t.Fatalf("failed to create test client: %v", err)
+			}
+
+			c := &Client{
+				owner:  "test-owner",
+				repo:   "test-repo",
+				login:  "test-user",
+				ctx:    context.Background(),
+				client: client,
+			}
+
+			state, err := c.AggregatedStatus("test-ref")
+
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error, got nil")
+				}
+				return
+			}
+
+			if err != nil {
+				t.Errorf("unexpected error: %v", err)
+				return
+			}
+
+			if state != tt.wantState {
+				t.Errorf("expected state %q, got %q", tt.wantState, state)
+			}
+		})
+	}
+}

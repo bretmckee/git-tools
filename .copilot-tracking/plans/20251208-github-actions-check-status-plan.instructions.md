@@ -56,9 +56,9 @@ tool by implementing Check Runs API alongside legacy Combined Status API.
     .copilot-tracking/details/20251208-github-actions-check-status-details.md
     (Lines 22-43)
 
-### [ ] Phase 2: Implement Aggregated Status Logic
+### [x] Phase 2: Implement Aggregated Status Logic
 
-- [ ] Task 2.1: Add AggregatedStatus helper method to client
+- [x] Task 2.1: Add AggregatedStatus helper method to client
   - Details:
     .copilot-tracking/details/20251208-github-actions-check-status-details.md
     (Lines 45-90)
