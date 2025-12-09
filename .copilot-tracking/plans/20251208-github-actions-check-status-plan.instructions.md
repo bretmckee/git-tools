@@ -63,14 +63,14 @@ tool by implementing Check Runs API alongside legacy Combined Status API.
     .copilot-tracking/details/20251208-github-actions-check-status-details.md
     (Lines 45-90)
 
-### [ ] Phase 3: Update submit-pr Command
+### [x] Phase 3: Update submit-pr Command
 
-- [ ] Task 3.1: Replace CombinedStatus with AggregatedStatus in submit-pr
+- [x] Task 3.1: Replace CombinedStatus with AggregatedStatus in submit-pr
   - Details:
     .copilot-tracking/details/20251208-github-actions-check-status-details.md
     (Lines 92-115)
 
-- [ ] Task 3.2: Add enhanced logging for status checks
+- [x] Task 3.2: Add enhanced logging for status checks
   - Details:
     .copilot-tracking/details/20251208-github-actions-check-status-details.md
     (Lines 117-128)

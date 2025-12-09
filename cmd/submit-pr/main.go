@@ -74,25 +74,25 @@ func submitPR(c *client.Client, dryRun, force bool, baseBranch string, number in
 		glog.Warningf("because force was specified, ignoring error %v", err)
 	}
 	ref := pr.GetHead().GetRef()
-	var status *github.CombinedStatus
+	var state string
 	for {
 		// TODO(bretmckee): Consider an argument to terminate this loop after a
 		// timeout.
-		status, err = c.CombinedStatus(ref)
+		state, err = c.AggregatedStatus(ref)
 		if err != nil {
-			return fmt.Errorf("submitPR: failed to get combined status: %v", err)
+			return fmt.Errorf("submitPR: failed to get status: %v", err)
 		}
-		if status.GetState() != "pending" {
+		if state != "pending" {
 			break
 		}
 		if force {
-			glog.Warningf("bPR is pending, but not waiting because force was specified")
+			glog.Warningf("PR is pending, but not waiting because force was specified")
 			break
 		}
 		glog.Warningf("pr %d status is pending: waiting %d seconds", number, retrySeconds)
 		time.Sleep(time.Second * retrySeconds)
 	}
-	if state := status.GetState(); state == "failure" {
+	if state == "failure" {
 		err := fmt.Errorf("pr %d cannot be submitted because it has status %s", number, state)
 		if !force {
 			return err

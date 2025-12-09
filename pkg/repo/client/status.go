@@ -54,7 +54,16 @@ func (c *Client) AggregatedStatus(ref string) (string, error) {
 	hasCheckRuns := checkRuns != nil && checkRuns.Total != nil && *checkRuns.Total > 0
 	hasStatuses := combinedStatus != nil && combinedStatus.TotalCount != nil && *combinedStatus.TotalCount > 0
 
+	if glog.V(2) {
+		glog.Infof("AggregatedStatus for %q: check_runs=%d, statuses=%d", ref, 
+			func() int { if hasCheckRuns { return *checkRuns.Total }; return 0 }(),
+			func() int { if hasStatuses { return *combinedStatus.TotalCount }; return 0 }())
+	}
+
 	if !hasCheckRuns && !hasStatuses {
+		if glog.V(2) {
+			glog.Infof("No checks configured for %q, returning success", ref)
+		}
 		return "success", nil
 	}
 
@@ -62,6 +71,9 @@ func (c *Client) AggregatedStatus(ref string) (string, error) {
 		for _, run := range checkRuns.CheckRuns {
 			status := run.GetStatus()
 			if status == "queued" || status == "in_progress" || status == "waiting" || status == "requested" || status == "pending" {
+				if glog.V(2) {
+					glog.Infof("Check run %q has status %q, overall status is pending", run.GetName(), status)
+				}
 				return "pending", nil
 			}
 		}
@@ -69,6 +81,9 @@ func (c *Client) AggregatedStatus(ref string) (string, error) {
 
 	if hasStatuses {
 		if combinedStatus.GetState() == "pending" {
+			if glog.V(2) {
+				glog.Infof("Combined status is pending")
+			}
 			return "pending", nil
 		}
 	}
@@ -78,6 +93,9 @@ func (c *Client) AggregatedStatus(ref string) (string, error) {
 			if run.GetStatus() == "completed" {
 				conclusion := run.GetConclusion()
 				if conclusion == "failure" || conclusion == "timed_out" || conclusion == "action_required" {
+					if glog.V(1) {
+						glog.Warningf("Check run %q failed with conclusion %q", run.GetName(), conclusion)
+					}
 					return "failure", nil
 				}
 			}
@@ -87,9 +105,15 @@ func (c *Client) AggregatedStatus(ref string) (string, error) {
 	if hasStatuses {
 		state := combinedStatus.GetState()
 		if state == "failure" || state == "error" {
+			if glog.V(1) {
+				glog.Warningf("Combined status has state %q", state)
+			}
 			return "failure", nil
 		}
 	}
 
+	if glog.V(2) {
+		glog.Infof("All checks passed for %q", ref)
+	}
 	return "success", nil
 }
