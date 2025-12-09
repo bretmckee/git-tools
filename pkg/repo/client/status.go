@@ -19,3 +19,22 @@ func (c *Client) CombinedStatus(ref string) (*github.CombinedStatus, error) {
 	}
 	return s, nil
 }
+
+func (c *Client) CheckRunsForRef(ref string, opts *github.ListCheckRunsOptions) (*github.ListCheckRunsResults, error) {
+	if opts == nil {
+		opts = &github.ListCheckRunsOptions{
+			Filter: github.String("latest"),
+		}
+	}
+
+	results, _, err := c.client.Checks.ListCheckRunsForRef(c.ctx, c.owner, c.repo, ref, opts)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to get check runs for %q: %v", ref, err)
+	}
+
+	if glog.V(3) {
+		glog.Infof("check runs for %q: %# v\n", ref, pretty.Formatter(*results))
+	}
+
+	return results, nil
+}

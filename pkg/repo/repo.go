@@ -37,4 +37,7 @@ type Repo interface {
 
 	// Statuses returns the statues for commit ref.
 	CombinedStatus(ref string) (*github.CombinedStatus, error)
+
+	// CheckRunsForRef returns check runs for a specific ref.
+	CheckRunsForRef(ref string, opts *github.ListCheckRunsOptions) (*github.ListCheckRunsResults, error)
 }
