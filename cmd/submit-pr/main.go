@@ -9,7 +9,6 @@ import (
 	"github.com/bretmckee/git-tools/pkg/repo/client"
 	"github.com/bretmckee/git-tools/pkg/urls"
 	"github.com/golang/glog"
-	"github.com/google/go-github/v28/github"
 	"github.com/kr/pretty"
 )
 
