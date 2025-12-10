@@ -102,7 +102,7 @@ func waitForChecks(c *client.Client, ref string, number int, force bool, sleepFn
 	}
 }
 
-func submitMsg(c *client.Client, prBody string, first, last string) (string, error) {
+func submitMsg(c *client.Client, prBody string, first, last string, directive string) (string, error) {
 	msg := ""
 	l := 0
 	glog.V(2).Infof("submitMsg begins first=%s, last=%s", first, last)
@@ -116,7 +116,8 @@ func submitMsg(c *client.Client, prBody string, first, last string) (string, err
 			return "", fmt.Errorf("submitMsg: commit %s has %d parents", pos, parents)
 		}
 
-		msg = "* " + commit.GetMessage() + "\n\n" + msg
+		cleanedMsg := stripDirectiveMarker(commit.GetMessage(), directive)
+		msg = "* " + cleanedMsg + "\n\n" + msg
 		glog.V(2).Infof("after commit %s, msg=[%v]", pos, msg)
 		pos = *commit.Parents[0].SHA
 		if l >= maxCommitChainLength {
@@ -126,77 +127,42 @@ func submitMsg(c *client.Client, prBody string, first, last string) (string, err
 
 	// If there are fewer than two commits, just use the pr body as the message.
 	if l < 2 {
-		return prBody, nil
+		return stripDirectiveMarker(prBody, directive), nil
 	}
 	return msg, nil
 }
 
-func submitPR(c *client.Client, dryRun, force bool, baseBranch string, number int, method string) error {
-	const retrySeconds = 60
+func submitPR(c *client.Client, dryRun, force bool, baseBranch string, number int, method, directive string) error {
 	pr, err := c.PullRequest(number)
 	if err != nil {
 		return fmt.Errorf("submitPR: failed to get %d: %v", number, err)
 	}
-	if pr.GetMerged() {
-		glog.Warningf("PR %d is already merged.", number)
-		return nil
-	}
-	if prRef := pr.GetBase().GetRef(); prRef != baseBranch {
-		err := fmt.Errorf("pr base ref (%q) does not match base branch ref (%q):", prRef, baseBranch)
-		if !force {
-			return err
+
+	if err := validatePRAndBranches(c, pr, baseBranch, force); err != nil {
+		if err == errAlreadyMerged {
+			return nil
 		}
-		glog.Warningf("because force was specified, ignoring error %v", err)
+		return err
 	}
-	bb, err := c.Branch(baseBranch)
+
+	if err := waitForChecks(c, pr.GetHead().GetRef(), number, force, nil); err != nil {
+		return err
+	}
+
+	msg, err := submitMsg(c, *pr.Body, pr.GetHead().GetSHA(), pr.GetBase().GetSHA(), directive)
 	if err != nil {
-		return fmt.Errorf("failed to get base branch %q: %v", baseBranch, err)
+		return fmt.Errorf("submitPR failed to build submitMsg: %v", err)
 	}
-	if prSHA, bbSHA := pr.GetBase().GetSHA(), bb.GetCommit().GetSHA(); prSHA != bbSHA {
-		err := fmt.Errorf("pr base SHA (%q) does not match base branch SHA(%q):", prSHA, bbSHA)
-		if !force {
-			return err
-		}
-		glog.Warningf("because force was specified, ignoring error %v", err)
-	}
-	ref := pr.GetHead().GetRef()
-	var state string
-	for {
-		// TODO(bretmckee): Consider an argument to terminate this loop after a
-		// timeout.
-		state, err = c.AggregatedStatus(ref)
-		if err != nil {
-			return fmt.Errorf("submitPR: failed to get status: %v", err)
-		}
-		if state != "pending" {
-			break
-		}
-		if force {
-			glog.Warningf("PR is pending, but not waiting because force was specified")
-			break
-		}
-		glog.Warningf("pr %d status is pending: waiting %d seconds", number, retrySeconds)
-		time.Sleep(time.Second * retrySeconds)
-	}
-	if state == "failure" {
-		err := fmt.Errorf("pr %d cannot be submitted because it has status %s", number, state)
-		if !force {
-			return err
-		}
-		glog.Warningf("because force was specified, ignoring error %v", err)
-	}
-	// TODO(bretmckee): Consider adding a way to specify a message.
-	msg, err := submitMsg(c, *pr.Body, pr.GetHead().GetSHA(), pr.GetBase().GetSHA())
-	if err != nil {
-		return fmt.Errorf("submitPR failed to build summitMsg: %v", err)
-	}
+
 	if dryRun {
-		glog.Warningf("skipping submission of %d because a dry run was requested", number)
+		glog.Warningf("skipping submission of %d because a dry run was requested, msg=[%s]", number, msg)
 		return nil
 	}
+
 	if _, err := c.MergePullRequest(number, pr.GetHead().GetSHA(), method, msg); err != nil {
 		return fmt.Errorf("failed to submit PR %d: %v", number, err)
 	}
+
 	glog.Infof("Successfully submitted %d", number)
 	return nil
 }
@@ -205,6 +171,7 @@ func main() {
 	var (
 		baseBranch  = flag.String("base", "master", "Base branch")
 		baseURL     = flag.String("url", "", "GitHub Base URL")
+		directive   = flag.String("directive", "bretmckee-branch", "Directive marker to remove from commit messages")
 		dryRun      = flag.Bool("dry-run", false, "Dry Run mode -- no pull requests will be created")
 		force       = flag.Bool("force", false, "Submit even if not fully approved.")
 		login       = flag.String("login", "", "Login of the user to submit for.")
@@ -239,7 +206,7 @@ func main() {
 		glog.Exitf("failed to create client: %v", err)
 	}
 
-	if err := submitPR(c, *dryRun, *force, *baseBranch, *pr, *method); err != nil {
+	if err := submitPR(c, *dryRun, *force, *baseBranch, *pr, *method, *directive); err != nil {
 		glog.Exitf("submitPR failed: %v", err)
 	}
 }

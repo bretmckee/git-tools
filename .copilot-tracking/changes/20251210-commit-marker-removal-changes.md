@@ -42,5 +42,19 @@ functions with comprehensive unit tests.
   instead of break statements for more idiomatic Go
 - cmd/submit-pr/main.go - Fixed validatePRAndBranches() to return
   errAlreadyMerged to preserve original short-circuit semantics
+- cmd/submit-pr/main.go - Updated submitMsg() to accept directive parameter and
+  clean commit messages using stripDirectiveMarker()
+- cmd/submit-pr/main.go - Refactored submitPR() to use helper functions,
+  reducing from 70 to 33 lines
+- cmd/submit-pr/main.go - Added --directive flag to main() with default
+  "bretmckee-branch" for configurable marker removal
+- cmd/submit-pr/main.go - Fixed typo in error message: summitMsg -> submitMsg
+- cmd/submit-pr/main_test.go - Added TestSubmitMsg with 5 test cases covering
+  single/multiple commits, markers, and error conditions
+- cmd/submit-pr/main_test.go - Added TestSubmitPR with 5 integration test cases
+  covering success, dry-run, force, and error scenarios
+- cmd/submit-pr/main_test.go - All tests pass with 74% overall coverage (new
+  functions: stripDirectiveMarker 100%, validatePRAndBranches 94%, waitForChecks
+  95%, submitMsg 89%, submitPR 79%)
 
 ### Removed

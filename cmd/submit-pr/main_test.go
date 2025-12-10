@@ -381,3 +381,393 @@ func containsHelper(s, substr string) bool {
 	}
 	return false
 }
+
+func TestSubmitMsg(t *testing.T) {
+	tests := []struct {
+		name      string
+		prBody    string
+		commits   map[string]*github.Commit
+		first     string
+		last      string
+		directive string
+		want      string
+		wantErr   bool
+		errMsg    string
+	}{
+		{
+			name:      "Single commit uses PR body with marker removed",
+			prBody:    "Title\n\nBody\n__\nbretmckee-branch: test",
+			commits:   map[string]*github.Commit{},
+			first:     "sha1",
+			last:      "sha1",
+			directive: "bretmckee-branch",
+			want:      "Title\n\nBody",
+			wantErr:   false,
+		},
+		{
+			name:   "Two commits with markers removed",
+			prBody: "PR Body",
+			commits: map[string]*github.Commit{
+				"sha2": {
+					SHA:     github.String("sha2"),
+					Message: github.String("Second commit\n__\nbretmckee-branch: test2"),
+					Parents: []github.Commit{{SHA: github.String("sha1")}},
+				},
+				"sha1": {
+					SHA:     github.String("sha1"),
+					Message: github.String("First commit\n__\nbretmckee-branch: test1"),
+					Parents: []github.Commit{{SHA: github.String("base")}},
+				},
+			},
+			first:     "sha2",
+			last:      "base",
+			directive: "bretmckee-branch",
+			want:      "* First commit\n\n* Second commit\n\n",
+			wantErr:   false,
+		},
+		{
+			name:   "Multiple commits concatenated",
+			prBody: "PR Body",
+			commits: map[string]*github.Commit{
+				"sha3": {
+					SHA:     github.String("sha3"),
+					Message: github.String("Third\n__\nbretmckee-branch: c3"),
+					Parents: []github.Commit{{SHA: github.String("sha2")}},
+				},
+				"sha2": {
+					SHA:     github.String("sha2"),
+					Message: github.String("Second\n__\nbretmckee-branch: c2"),
+					Parents: []github.Commit{{SHA: github.String("sha1")}},
+				},
+			},
+			first:     "sha3",
+			last:      "sha1",
+			directive: "bretmckee-branch",
+			want:      "* Second\n\n* Third\n\n",
+			wantErr:   false,
+		},
+		{
+			name:   "Commit with multiple parents fails",
+			prBody: "PR Body",
+			commits: map[string]*github.Commit{
+				"merge": {
+					SHA:     github.String("merge"),
+					Message: github.String("Merge commit"),
+					Parents: []github.Commit{
+						{SHA: github.String("sha1")},
+						{SHA: github.String("sha2")},
+					},
+				},
+			},
+			first:     "merge",
+			last:      "sha1",
+			directive: "bretmckee-branch",
+			wantErr:   true,
+			errMsg:    "has 2 parents",
+		},
+		{
+			name:   "No marker in commits",
+			prBody: "Clean PR body",
+			commits: map[string]*github.Commit{
+				"sha2": {
+					SHA:     github.String("sha2"),
+					Message: github.String("Second clean message"),
+					Parents: []github.Commit{{SHA: github.String("sha1")}},
+				},
+				"sha1": {
+					SHA:     github.String("sha1"),
+					Message: github.String("First clean message"),
+					Parents: []github.Commit{{SHA: github.String("base")}},
+				},
+			},
+			first:     "sha2",
+			last:      "base",
+			directive: "bretmckee-branch",
+			want:      "* First clean message\n\n* Second clean message\n\n",
+			wantErr:   false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				for sha, commit := range tt.commits {
+					if r.URL.Path == "/repos/test/test/git/commits/"+sha {
+						json.NewEncoder(w).Encode(commit)
+						return
+					}
+				}
+				http.NotFound(w, r)
+			}))
+			defer server.Close()
+
+			c, err := client.Create(server.URL, server.URL, "test", "test", "user", "token")
+			if err != nil {
+				t.Fatalf("Failed to create client: %v", err)
+			}
+
+			got, err := submitMsg(c, tt.prBody, tt.first, tt.last, tt.directive)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("submitMsg() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil && tt.errMsg != "" && !contains(err.Error(), tt.errMsg) {
+				t.Errorf("submitMsg() error = %q, want to contain %q", err.Error(), tt.errMsg)
+				return
+			}
+			if !tt.wantErr && got != tt.want {
+				t.Errorf("submitMsg() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestSubmitPR(t *testing.T) {
+	tests := []struct {
+		name        string
+		pr          *github.PullRequest
+		branch      *github.Branch
+		checkStates []string
+		commits     map[string]*github.Commit
+		dryRun      bool
+		force       bool
+		baseBranch  string
+		directive   string
+		wantErr     bool
+		errMsg      string
+		wantMerged  bool
+	}{
+		{
+			name: "Successful submission",
+			pr: &github.PullRequest{
+				Number: github.Int(1),
+				Merged: github.Bool(false),
+				Body:   github.String("PR body\n__\nbretmckee-branch: test"),
+				Base: &github.PullRequestBranch{
+					Ref: github.String("main"),
+					SHA: github.String("base-sha"),
+				},
+				Head: &github.PullRequestBranch{
+					Ref: github.String("feature"),
+					SHA: github.String("head-sha"),
+				},
+			},
+			branch: &github.Branch{
+				Commit: &github.RepositoryCommit{
+					SHA: github.String("base-sha"),
+				},
+			},
+			checkStates: []string{"success"},
+			commits: map[string]*github.Commit{
+				"head-sha": {
+					SHA:     github.String("head-sha"),
+					Message: github.String("Test commit"),
+					Parents: []github.Commit{{SHA: github.String("base-sha")}},
+				},
+			},
+			dryRun:     false,
+			force:      false,
+			baseBranch: "main",
+			directive:  "bretmckee-branch",
+			wantErr:    false,
+			wantMerged: true,
+		},
+		{
+			name: "Already merged PR returns early",
+			pr: &github.PullRequest{
+				Number: github.Int(2),
+				Merged: github.Bool(true),
+				Base: &github.PullRequestBranch{
+					Ref: github.String("main"),
+					SHA: github.String("base-sha"),
+				},
+			},
+			baseBranch: "main",
+			directive:  "bretmckee-branch",
+			wantErr:    false,
+			wantMerged: false,
+		},
+		{
+			name: "Dry run skips merge",
+			pr: &github.PullRequest{
+				Number: github.Int(3),
+				Merged: github.Bool(false),
+				Body:   github.String("PR body"),
+				Base: &github.PullRequestBranch{
+					Ref: github.String("main"),
+					SHA: github.String("base-sha"),
+				},
+				Head: &github.PullRequestBranch{
+					Ref: github.String("feature"),
+					SHA: github.String("head-sha"),
+				},
+			},
+			branch: &github.Branch{
+				Commit: &github.RepositoryCommit{
+					SHA: github.String("base-sha"),
+				},
+			},
+			checkStates: []string{"success"},
+			commits: map[string]*github.Commit{
+				"head-sha": {
+					SHA:     github.String("head-sha"),
+					Message: github.String("Test commit"),
+					Parents: []github.Commit{{SHA: github.String("base-sha")}},
+				},
+			},
+			dryRun: true,
+			force:       false,
+			baseBranch:  "main",
+			directive:   "bretmckee-branch",
+			wantErr:     false,
+			wantMerged:  false,
+		},
+		{
+			name: "Failed checks without force",
+			pr: &github.PullRequest{
+				Number: github.Int(4),
+				Merged: github.Bool(false),
+				Base: &github.PullRequestBranch{
+					Ref: github.String("main"),
+					SHA: github.String("base-sha"),
+				},
+				Head: &github.PullRequestBranch{
+					Ref: github.String("feature"),
+					SHA: github.String("head-sha"),
+				},
+			},
+			branch: &github.Branch{
+				Commit: &github.RepositoryCommit{
+					SHA: github.String("base-sha"),
+				},
+			},
+			checkStates: []string{"failure"},
+			force:       false,
+			baseBranch:  "main",
+			directive:   "bretmckee-branch",
+			wantErr:     true,
+			errMsg:      "cannot be submitted",
+		},
+		{
+			name: "Failed checks with force proceeds",
+			pr: &github.PullRequest{
+				Number: github.Int(5),
+				Merged: github.Bool(false),
+				Body:   github.String("PR body"),
+				Base: &github.PullRequestBranch{
+					Ref: github.String("main"),
+					SHA: github.String("base-sha"),
+				},
+				Head: &github.PullRequestBranch{
+					Ref: github.String("feature"),
+					SHA: github.String("head-sha"),
+				},
+			},
+			branch: &github.Branch{
+				Commit: &github.RepositoryCommit{
+					SHA: github.String("base-sha"),
+				},
+			},
+			checkStates: []string{"failure"},
+			commits: map[string]*github.Commit{
+				"head-sha": {
+					SHA:     github.String("head-sha"),
+					Message: github.String("Test commit"),
+					Parents: []github.Commit{{SHA: github.String("base-sha")}},
+				},
+			},
+			force: true,
+			baseBranch:  "main",
+			directive:   "bretmckee-branch",
+			wantErr:     false,
+			wantMerged:  true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			callCount := 0
+			merged := false
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method == "GET" && contains(r.URL.Path, "/pulls/") {
+					json.NewEncoder(w).Encode(tt.pr)
+					return
+				}
+				if r.Method == "GET" && contains(r.URL.Path, "/branches/") {
+					if tt.branch != nil {
+						json.NewEncoder(w).Encode(tt.branch)
+					} else {
+						http.NotFound(w, r)
+					}
+					return
+				}
+				if contains(r.URL.Path, "/check-runs") {
+					state := "success"
+					if tt.checkStates != nil && len(tt.checkStates) > 0 {
+						state = tt.checkStates[callCount]
+						if callCount < len(tt.checkStates)-1 {
+							callCount++
+						}
+					}
+					results := &github.ListCheckRunsResults{
+						Total: github.Int(1),
+						CheckRuns: []*github.CheckRun{
+							{
+								Name:       github.String("test"),
+								Status:     github.String(mapStateToCheckStatus(state)),
+								Conclusion: github.String(mapStateToConclusion(state)),
+							},
+						},
+					}
+					json.NewEncoder(w).Encode(results)
+					return
+				}
+				if r.Method == "GET" && contains(r.URL.Path, "/status") {
+					json.NewEncoder(w).Encode(&github.CombinedStatus{
+						State:      github.String("success"),
+						TotalCount: github.Int(0),
+					})
+					return
+				}
+				if r.Method == "GET" && contains(r.URL.Path, "/git/commits/") {
+					for sha, commit := range tt.commits {
+						if contains(r.URL.Path, sha) {
+							json.NewEncoder(w).Encode(commit)
+							return
+						}
+					}
+					http.NotFound(w, r)
+					return
+				}
+				if r.Method == "PUT" && contains(r.URL.Path, "/merge") {
+					merged = true
+					result := &github.PullRequestMergeResult{
+						Merged: github.Bool(true),
+					}
+					json.NewEncoder(w).Encode(result)
+					return
+				}
+				http.NotFound(w, r)
+			}))
+			defer server.Close()
+
+			c, err := client.Create(server.URL, server.URL, "test", "test", "user", "token")
+			if err != nil {
+				t.Fatalf("Failed to create client: %v", err)
+			}
+
+			err = submitPR(c, tt.dryRun, tt.force, tt.baseBranch, tt.pr.GetNumber(), "squash", tt.directive)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("submitPR() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if err != nil && tt.errMsg != "" && !contains(err.Error(), tt.errMsg) {
+				t.Errorf("submitPR() error = %q, want to contain %q", err.Error(), tt.errMsg)
+				return
+			}
+			if merged != tt.wantMerged {
+				t.Errorf("submitPR() merged = %v, want %v", merged, tt.wantMerged)
+			}
+		})
+	}
+}
