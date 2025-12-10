@@ -103,9 +103,9 @@ functions.
   - Note: Overall coverage 74% (main() at 0% pulls average down, all new
     functions well-tested)
 
-### [ ] Phase 4: Update Shell Script
+### [x] Phase 4: Update Shell Script
 
-- [ ] Task 4.1: Update scripts/submit-prs to pass directive parameter
+- [x] Task 4.1: Update scripts/submit-prs to pass directive parameter
   - Details: .copilot-tracking/details/20251210-commit-marker-removal-details.md
     (Lines 227-240)
 

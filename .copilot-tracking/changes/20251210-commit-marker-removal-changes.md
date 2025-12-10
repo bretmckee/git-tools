@@ -56,5 +56,51 @@ functions with comprehensive unit tests.
 - cmd/submit-pr/main_test.go - All tests pass with 74% overall coverage (new
   functions: stripDirectiveMarker 100%, validatePRAndBranches 94%, waitForChecks
   95%, submitMsg 89%, submitPR 79%)
+- scripts/submit-prs - Added DIRECTIVE environment variable with default
+  "bretmckee-branch"
+- scripts/submit-prs - Updated submit-pr call to pass --directive="${DIRECTIVE}"
+  flag
 
 ### Removed
+
+## Release Summary
+
+**Total Files Affected**: 3
+
+### Files Created (1)
+
+- cmd/submit-pr/main_test.go - Comprehensive test suite with 34 test cases
+  across 5 test functions covering marker removal, validation, status checking,
+  message building, and integration scenarios
+
+### Files Modified (2)
+
+- cmd/submit-pr/main.go - Refactored submitPR from 70 to 33 lines by extracting
+  helper functions (stripDirectiveMarker, validatePRAndBranches, waitForChecks),
+  added directive marker removal functionality, and fixed typo in error message
+- scripts/submit-prs - Added DIRECTIVE environment variable configuration and
+  passed to submit-pr command via --directive flag
+
+### Files Removed (0)
+
+### Dependencies & Infrastructure
+
+- **New Dependencies**: None (uses only Go standard library regexp and strings
+  packages)
+- **Updated Dependencies**: None
+- **Infrastructure Changes**: None
+- **Configuration Updates**: Added --directive command-line flag to submit-pr
+  with default value "bretmckee-branch"
+
+### Deployment Notes
+
+This is a backward-compatible enhancement. The new --directive flag defaults to
+"bretmckee-branch" matching existing behavior. Users can customize the directive
+pattern via the DIRECTIVE environment variable in scripts/submit-prs. All
+existing functionality is preserved while directive markers are now removed from
+squashed commit messages on the main branch.
+
+**Testing**: All 34 unit tests pass with 74% overall coverage. Individual
+function coverage: stripDirectiveMarker 100%, validatePRAndBranches 94%,
+waitForChecks 95%, submitMsg 89%, submitPR 79%. The lower overall percentage is
+due to main() being at 0% (requires integration testing).

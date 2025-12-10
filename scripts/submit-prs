@@ -1,8 +1,7 @@
 #! /bin/bash
 set -x -e -o pipefail
 
-DRY_RUN=
-FORCE=
+DIRECTIVE=${DIRECTIVE:-bretmckee-branch}
 LOGIN=${LOGIN:-bretmckee}
 REMOTE=${REMOTE:-origin}
 SOURCE_OWNER=${SOURCE_OWNER:-bretmckee}
@@ -10,6 +9,8 @@ SOURCE_REPO=${SOURCE_REPO:-$(basename `git rev-parse --show-toplevel`)}
 URL=${URL:-https://api.github.com}
 export GITHUB_HOST=$(echo ${URL} | sed -e 's|https://\([^/]*\)/.*$|\1|')
 GITHUB_TOKEN=${TOKEN:-${GITHUB_TOKEN:-""}}
+DRY_RUN=
+FORCE=
 
 BASE_BRANCH=${BASE_BRANCH:-$(git symbolic-ref refs/remotes/"${REMOTE}"/HEAD | sed "s@^refs/remotes/${REMOTE}/@@")}
 
