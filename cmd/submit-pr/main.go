@@ -4,17 +4,103 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/bretmckee/git-tools/pkg/repo/client"
 	"github.com/bretmckee/git-tools/pkg/urls"
 	"github.com/golang/glog"
+	"github.com/google/go-github/v28/github"
 	"github.com/kr/pretty"
 )
 
 const (
 	maxCommitChainLength = 20
 )
+
+var errAlreadyMerged = fmt.Errorf("PR is already merged")
+
+type sleepFunc func(time.Duration)
+
+func stripDirectiveMarker(message, directive string) string {
+	pattern := fmt.Sprintf(`(?m)^%s:\s*[/A-Za-z0-9_.-]+\s*$`, regexp.QuoteMeta(directive))
+	re := regexp.MustCompile(pattern)
+	cleaned := re.ReplaceAllString(message, "")
+
+	cleaned = regexp.MustCompile(`(?m)^__\s*$`).ReplaceAllString(cleaned, "")
+
+	cleaned = strings.TrimSpace(cleaned)
+	cleaned = regexp.MustCompile(`\n\n\n+`).ReplaceAllString(cleaned, "\n\n")
+
+	return cleaned
+}
+
+func validatePRAndBranches(c *client.Client, pr *github.PullRequest, baseBranch string, force bool) error {
+	if pr.GetMerged() {
+		glog.Warningf("PR %d is already merged.", pr.GetNumber())
+		return errAlreadyMerged
+	}
+
+	if prRef := pr.GetBase().GetRef(); prRef != baseBranch {
+		err := fmt.Errorf("pr base ref (%q) does not match base branch ref (%q)", prRef, baseBranch)
+		if !force {
+			return err
+		}
+		glog.Warningf("because force was specified, ignoring error %v", err)
+	}
+
+	bb, err := c.Branch(baseBranch)
+	if err != nil {
+		return fmt.Errorf("failed to get base branch %q: %v", baseBranch, err)
+	}
+
+	if prSHA, bbSHA := pr.GetBase().GetSHA(), bb.GetCommit().GetSHA(); prSHA != bbSHA {
+		err := fmt.Errorf("pr base SHA (%q) does not match base branch SHA (%q)", prSHA, bbSHA)
+		if !force {
+			return err
+		}
+		glog.Warningf("because force was specified, ignoring error %v", err)
+	}
+
+	return nil
+}
+
+func waitForChecks(c *client.Client, ref string, number int, force bool, sleepFn sleepFunc) error {
+	const retrySeconds = 60
+
+	if sleepFn == nil {
+		sleepFn = time.Sleep
+	}
+
+	for {
+		state, err := c.AggregatedStatus(ref)
+		if err != nil {
+			return fmt.Errorf("failed to get status: %v", err)
+		}
+
+		if state == "failure" {
+			err := fmt.Errorf("pr %d cannot be submitted because it has status %s", number, state)
+			if !force {
+				return err
+			}
+			glog.Warningf("because force was specified, ignoring error %v", err)
+			return nil
+		}
+
+		if state != "pending" {
+			return nil
+		}
+
+		if force {
+			glog.Warningf("PR is pending, but not waiting because force was specified")
+			return nil
+		}
+
+		glog.Warningf("pr %d status is pending: waiting %d seconds", number, retrySeconds)
+		sleepFn(time.Second * retrySeconds)
+	}
+}
 
 func submitMsg(c *client.Client, prBody string, first, last string) (string, error) {
 	msg := ""
