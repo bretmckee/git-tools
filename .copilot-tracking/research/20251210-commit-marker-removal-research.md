@@ -242,25 +242,38 @@ func waitForChecks(c *client.Client, ref string, number int, force bool) error {
 **3. stripDirectiveMarker** - Removes directive markers and separator lines from
 commit messages
 
-```go
+````go
 func stripDirectiveMarker(message, directive string) string {
-    // Remove the directive line (e.g., "bretmckee-branch: update-readme")
-    pattern := fmt.Sprintf(`(?m)^%s:\s*[/A-Za-z0-9_.-]+\s*$`, regexp.QuoteMeta(directive))
-    re := regexp.MustCompile(pattern)
-    cleaned := re.ReplaceAllString(message, "")
+	// Normalize line endings to handle both Unix (LF) and Windows (CRLF)
+	normalized := strings.ReplaceAll(message, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
 
-    // Remove lines with only underscores and optional whitespace
-    cleaned = regexp.MustCompile(`(?m)^\s*_+\s*$`).ReplaceAllString(cleaned, "")
+	// Remove trailing whitespace to find the actual end
+	trimmed := strings.TrimRight(normalized, " \t\n")
 
-    // Clean up whitespace
-    cleaned = strings.TrimSpace(cleaned)
-    cleaned = regexp.MustCompile(`\n\n\n+`).ReplaceAllString(cleaned, "\n\n")
+	// Check if the last non-empty line is the directive
+	directivePattern := fmt.Sprintf(`\n%s:\s*[/A-Za-z0-9_.-]+$`, regexp.QuoteMeta(directive))
+	re := regexp.MustCompile(directivePattern)
 
-    return cleaned
+	if re.MatchString(trimmed) {
+		// Remove the directive line
+		trimmed = re.ReplaceAllString(trimmed, "")
+
+		// Now check if the new last line is only underscores
+		trimmed = strings.TrimRight(trimmed, " \t\n")
+		underscorePattern := regexp.MustCompile(`(^|\n)\s*_+\s*$`)
+		if underscorePattern.MatchString(trimmed) {
+			trimmed = underscorePattern.ReplaceAllString(trimmed, "$1")
+		}
+	}
+
+	// Clean up whitespace
+	cleaned := strings.TrimSpace(trimmed)
+	cleaned = regexp.MustCompile(`\n\n\n+`).ReplaceAllString(cleaned, "\n\n")
+
+	return cleaned
 }
-```
-
-#### Updated Core Functions
+```#### Updated Core Functions
 
 **submitMsg with marker removal:**
 
@@ -294,7 +307,7 @@ func submitMsg(c *client.Client, prBody string, first, last string, directive st
     }
     return msg, nil
 }
-```
+````
 
 **Refactored submitPR:**
 
@@ -585,6 +598,54 @@ func TestStripDirectiveMarker(t *testing.T) {
             message:   "Title\n  ___  \nbretmckee-branch: test",
             directive: "bretmckee-branch",
             want:      "Title",
+        },
+        {
+            name:      "CRLF line endings (Windows/GitHub)",
+            message:   "Title\r\n\r\nBody\r\n___\r\nbretmckee-branch: test",
+            directive: "bretmckee-branch",
+            want:      "Title\n\nBody",
+        },
+        {
+            name:      "Mixed line endings",
+            message:   "Title\r\n\nBody\n___\r\nbretmckee-branch: test",
+            directive: "bretmckee-branch",
+            want:      "Title\n\nBody",
+        },
+        {
+            name:      "CR line endings (old Mac)",
+            message:   "Title\r\rBody\r___\rbretmckee-branch: test",
+            directive: "bretmckee-branch",
+            want:      "Title\n\nBody",
+        },
+        {
+            name:      "Preserve underscores in code (__init__, snake_case)",
+            message:   "Fix bug\n\nThe __init__ method uses user_name variable.\n___\nbretmckee-branch: fix",
+            directive: "bretmckee-branch",
+            want:      "Fix bug\n\nThe __init__ method uses user_name variable.",
+        },
+        {
+            name:      "Preserve section separator in middle of message",
+            message:   "Title\n\nSection:\n___\n\nMore content.\n___\nbretmckee-branch: test",
+            directive: "bretmckee-branch",
+            want:      "Title\n\nSection:\n___\n\nMore content.",
+        },
+        {
+            name:      "Directive without separator",
+            message:   "Simple message\nbretmckee-branch: test",
+            directive: "bretmckee-branch",
+            want:      "Simple message",
+        },
+        {
+            name:      "Directive in middle is NOT removed",
+            message:   "Title\nbretmckee-branch: in-middle\n\nMore content\n___\nbretmckee-branch: test",
+            directive: "bretmckee-branch",
+            want:      "Title\nbretmckee-branch: in-middle\n\nMore content",
+        },
+        {
+            name:      "No directive at end (underscores preserved)",
+            message:   "Title\n\nBody\n___",
+            directive: "bretmckee-branch",
+            want:      "Title\n\nBody\n___",
         },  name:      "Custom directive",
             message:   "Title\n__\ncustom-dir: branch-name",
             directive: "custom-dir",

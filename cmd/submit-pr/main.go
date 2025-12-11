@@ -24,13 +24,31 @@ var errAlreadyMerged = fmt.Errorf("PR is already merged")
 type sleepFunc func(time.Duration)
 
 func stripDirectiveMarker(message, directive string) string {
-	pattern := fmt.Sprintf(`(?m)^%s:\s*[/A-Za-z0-9_.-]+\s*$`, regexp.QuoteMeta(directive))
-	re := regexp.MustCompile(pattern)
-	cleaned := re.ReplaceAllString(message, "")
+	// Normalize line endings to handle both Unix (LF) and Windows (CRLF)
+	normalized := strings.ReplaceAll(message, "\r\n", "\n")
+	normalized = strings.ReplaceAll(normalized, "\r", "\n")
 
-	cleaned = regexp.MustCompile(`(?m)^__\s*$`).ReplaceAllString(cleaned, "")
+	// Remove trailing whitespace to find the actual end
+	trimmed := strings.TrimRight(normalized, " \t\n")
 
-	cleaned = strings.TrimSpace(cleaned)
+	// Check if the last non-empty line is the directive
+	directivePattern := fmt.Sprintf(`\n%s:\s*[/A-Za-z0-9_.-]+$`, regexp.QuoteMeta(directive))
+	re := regexp.MustCompile(directivePattern)
+
+	if re.MatchString(trimmed) {
+		// Remove the directive line
+		trimmed = re.ReplaceAllString(trimmed, "")
+
+		// Now check if the new last line is only underscores
+		trimmed = strings.TrimRight(trimmed, " \t\n")
+		underscorePattern := regexp.MustCompile(`(^|\n)\s*_+\s*$`)
+		if underscorePattern.MatchString(trimmed) {
+			trimmed = underscorePattern.ReplaceAllString(trimmed, "$1")
+		}
+	}
+
+	// Clean up whitespace
+	cleaned := strings.TrimSpace(trimmed)
 	cleaned = regexp.MustCompile(`\n\n\n+`).ReplaceAllString(cleaned, "\n\n")
 
 	return cleaned

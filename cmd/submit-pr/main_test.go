@@ -88,7 +88,13 @@ func TestStripDirectiveMarker(t *testing.T) {
 			name:      "Marker in middle preserved if not at end",
 			message:   "Before\nbretmckee-branch: test\nAfter",
 			directive: "bretmckee-branch",
-			want:      "Before\n\nAfter",
+			want:      "Before\nbretmckee-branch: test\nAfter",
+		},
+		{
+			name:      "Three underscores separator",
+			message:   "Message\n___\nbretmckee-branch: test",
+			directive: "bretmckee-branch",
+			want:      "Message",
 		},
 	}
 
@@ -310,8 +316,8 @@ func TestWaitForChecks(t *testing.T) {
 						Total: github.Int(1),
 						CheckRuns: []*github.CheckRun{
 							{
-								Name:   github.String("test"),
-								Status: github.String(mapStateToCheckStatus(state)),
+								Name:       github.String("test"),
+								Status:     github.String(mapStateToCheckStatus(state)),
 								Conclusion: github.String(mapStateToConclusion(state)),
 							},
 						},
@@ -615,12 +621,12 @@ func TestSubmitPR(t *testing.T) {
 					Parents: []github.Commit{{SHA: github.String("base-sha")}},
 				},
 			},
-			dryRun: true,
-			force:       false,
-			baseBranch:  "main",
-			directive:   "bretmckee-branch",
-			wantErr:     false,
-			wantMerged:  false,
+			dryRun:     true,
+			force:      false,
+			baseBranch: "main",
+			directive:  "bretmckee-branch",
+			wantErr:    false,
+			wantMerged: false,
 		},
 		{
 			name: "Failed checks without force",
@@ -676,11 +682,11 @@ func TestSubmitPR(t *testing.T) {
 					Parents: []github.Commit{{SHA: github.String("base-sha")}},
 				},
 			},
-			force: true,
-			baseBranch:  "main",
-			directive:   "bretmckee-branch",
-			wantErr:     false,
-			wantMerged:  true,
+			force:      true,
+			baseBranch: "main",
+			directive:  "bretmckee-branch",
+			wantErr:    false,
+			wantMerged: true,
 		},
 	}
 
