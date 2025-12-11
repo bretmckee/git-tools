@@ -249,8 +249,8 @@ func stripDirectiveMarker(message, directive string) string {
     re := regexp.MustCompile(pattern)
     cleaned := re.ReplaceAllString(message, "")
 
-    // Remove lines with only underscores (separator lines before directives)
-    cleaned = regexp.MustCompile(`(?m)^_+\s*$`).ReplaceAllString(cleaned, "")
+    // Remove lines with only underscores and optional whitespace
+    cleaned = regexp.MustCompile(`(?m)^\s*_+\s*$`).ReplaceAllString(cleaned, "")
 
     // Clean up whitespace
     cleaned = strings.TrimSpace(cleaned)
@@ -571,6 +571,18 @@ func TestStripDirectiveMarker(t *testing.T) {
         {
             name:      "Separator with spaces",
             message:   "Title\n___  \nbretmckee-branch: test",
+            directive: "bretmckee-branch",
+            want:      "Title",
+        },
+        {
+            name:      "Real-world example with trailing spaces",
+            message:   "This is a test\n\nIt is only a test.\n___\nbretmckee-branch: testing",
+            directive: "bretmckee-branch",
+            want:      "This is a test\n\nIt is only a test.",
+        },
+        {
+            name:      "Separator with leading and trailing spaces",
+            message:   "Title\n  ___  \nbretmckee-branch: test",
             directive: "bretmckee-branch",
             want:      "Title",
         },  name:      "Custom directive",
