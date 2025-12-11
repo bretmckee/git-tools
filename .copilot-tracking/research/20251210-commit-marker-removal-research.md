@@ -12,8 +12,10 @@
     `sed -n 's/^'"${DIRECTIVE}"': \([/A-Za-z0-9_.-]\+\)$/\1/p'`
   - Marker format: Line starting with `${DIRECTIVE}:` followed by branch name
   - Default directive: `bretmckee-branch`
-  - Example from README: commit message ends with
-    `__\nbretmckee-branch: update-readme`
+  - User convention: Prefix directive with three underscores and newline
+    (`___\nbretmckee-branch: update-readme`)
+  - The separator line (underscores only) should be removed along with the
+    directive
 - `cmd/submit-pr/main.go` (lines 19-44, 103-114)
   - `submitMsg()` builds squash commit message from all commits in PR
   - Uses `commit.GetMessage()` which includes the full commit message (with
@@ -113,7 +115,7 @@ Local Commit Message:
 Update README.md
 
 Add some more information to the read me.
-__
+___
 bretmckee-branch: update-readme
 
 ↓ (git-push-branches finds marker and creates branch)
@@ -127,7 +129,7 @@ Main Branch Commit Message:
 * Update README.md
 
 Add some more information to the read me.
-__
+___
 bretmckee-branch: update-readme
 ```
 
@@ -237,16 +239,20 @@ func waitForChecks(c *client.Client, ref string, number int, force bool) error {
 }
 ```
 
-**3. stripDirectiveMarker** - Removes directive markers from commit messages
+**3. stripDirectiveMarker** - Removes directive markers and separator lines from
+commit messages
 
 ```go
 func stripDirectiveMarker(message, directive string) string {
+    // Remove the directive line (e.g., "bretmckee-branch: update-readme")
     pattern := fmt.Sprintf(`(?m)^%s:\s*[/A-Za-z0-9_.-]+\s*$`, regexp.QuoteMeta(directive))
     re := regexp.MustCompile(pattern)
     cleaned := re.ReplaceAllString(message, "")
 
-    cleaned = regexp.MustCompile(`(?m)^__\s*$`).ReplaceAllString(cleaned, "")
+    // Remove lines with only underscores (separator lines before directives)
+    cleaned = regexp.MustCompile(`(?m)^_+\s*$`).ReplaceAllString(cleaned, "")
 
+    // Clean up whitespace
     cleaned = strings.TrimSpace(cleaned)
     cleaned = regexp.MustCompile(`\n\n\n+`).ReplaceAllString(cleaned, "\n\n")
 
@@ -393,24 +399,28 @@ submit-pr ${FORCE} ${DRY_RUN} --base="${BASE_BRANCH}" --directive="${DIRECTIVE}"
   -v="${VERBOSITY}" --pr="${PR}"
 ```
 
-### Complete Example: After Implementation
-
-```
-Local Commit Message:
-Update README.md
+Local Commit Message: Update README.md
 
 Add some more information to the read me.
-__
+
+---
+
 bretmckee-branch: update-readme
 
 ↓ (git-push-branches finds marker and creates branch)
 
-PR Branch: bretmckee/update-readme
-PR Body: (same as commit message)
+PR Branch: bretmckee/update-readme PR Body: (same as commit message)
 
-↓ (submit-pr merges with squash, stripDirectiveMarker removes marker)
+↓ (submit-pr merges with squash, stripDirectiveMarker removes marker and
+separator)
 
 Main Branch Commit Message:
+
+- Update README.md
+
+Add some more information to the read me.
+
+```n Branch Commit Message:
 * Update README.md
 
 Add some more information to the read me.
@@ -498,15 +508,29 @@ Table-driven tests covering various marker patterns and edge cases:
 func TestStripDirectiveMarker(t *testing.T) {
     tests := []struct {
         name      string
-        message   string
-        directive string
-        want      string
-    }{
         {
-            name:      "Simple marker removal",
+            name:      "Simple marker removal with three underscores",
+            message:   "Update README\n\nAdd docs\n___\nbretmckee-branch: update-readme",
+            directive: "bretmckee-branch",
+            want:      "Update README\n\nAdd docs",
+        },
+        {
+            name:      "Marker removal with two underscores",
             message:   "Update README\n\nAdd docs\n__\nbretmckee-branch: update-readme",
             directive: "bretmckee-branch",
             want:      "Update README\n\nAdd docs",
+        },
+        {
+            name:      "Marker removal with five underscores",
+            message:   "Fix typo\n\nCorrect spelling\n_____\nbretmckee-branch: fix-typo",
+            directive: "bretmckee-branch",
+            want:      "Fix typo\n\nCorrect spelling",
+        },
+        {
+            name:      "Marker removal with single underscore",
+            message:   "Quick fix\n_\nbretmckee-branch: quick-fix",
+            directive: "bretmckee-branch",
+            want:      "Quick fix",
         },
         {
             name:      "Marker without separator",
@@ -515,31 +539,41 @@ func TestStripDirectiveMarker(t *testing.T) {
             want:      "Fix bug",
         },
         {
-            name:      "Multiple separators",
-            message:   "Title\n\nBody\n__\n__\nbretmckee-branch: test",
+            name:      "Multiple separators with different lengths",
+            message:   "Title\n\nBody\n___\n__\n____\nbretmckee-branch: test",
             directive: "bretmckee-branch",
             want:      "Title\n\nBody",
-        },
-        {
-            name:      "No marker present",
-            message:   "Regular commit\n\nNo marker here",
-            directive: "bretmckee-branch",
-            want:      "Regular commit\n\nNo marker here",
-        },
+        },  name:      "Multiple separators",
         {
             name:      "Marker with dashes in branch name",
-            message:   "Title\n__\nbretmckee-branch: feature-name-123",
+            message:   "Title\n___\nbretmckee-branch: feature-name-123",
             directive: "bretmckee-branch",
             want:      "Title",
         },
         {
             name:      "Marker with slashes in branch name",
-            message:   "Title\n__\nbretmckee-branch: feature/sub-feature",
+            message:   "Title\n___\nbretmckee-branch: feature/sub-feature",
             directive: "bretmckee-branch",
             want:      "Title",
         },
         {
             name:      "Custom directive",
+            message:   "Title\n___\ncustom-dir: branch-name",
+            directive: "custom-dir",
+            want:      "Title",
+        },
+        {
+            name:      "Trailing whitespace cleanup",
+            message:   "Title\n\n\n\n___\nbretmckee-branch: test",
+            directive: "bretmckee-branch",
+            want:      "Title",
+        },
+        {
+            name:      "Separator with spaces",
+            message:   "Title\n___  \nbretmckee-branch: test",
+            directive: "bretmckee-branch",
+            want:      "Title",
+        },  name:      "Custom directive",
             message:   "Title\n__\ncustom-dir: branch-name",
             directive: "custom-dir",
             want:      "Title",
@@ -695,25 +729,25 @@ func TestWaitForChecks(t *testing.T) {
         })
     }
 }
-```
-
-### Test Cases for submitMsg()
-
-Tests for message building with marker removal:
-
-```go
-func TestSubmitMsg(t *testing.T) {
-    tests := []struct {
-        name      string
-        prBody    string
-        commits   []*github.Commit // Mock commit chain
-        directive string
-        want      string
-        wantErr   bool
-    }{
         {
             name:      "Single commit uses PR body with marker removed",
-            prBody:    "Title\n\nBody\n__\nbretmckee-branch: test",
+            prBody:    "Title\n\nBody\n___\nbretmckee-branch: test",
+            commits:   []*github.Commit{makeCommit("sha1", "parent", "Commit msg")},
+            directive: "bretmckee-branch",
+            want:      "Title\n\nBody",
+            wantErr:   false,
+        },ubmitMsg(t *testing.T) {
+        {
+            name:   "Multiple commits with markers removed",
+            prBody: "PR Body",
+            commits: []*github.Commit{
+                makeCommit("sha2", "sha1", "Second\n___\nbretmckee-branch: test2"),
+                makeCommit("sha1", "base", "First\n___\nbretmckee-branch: test1"),
+            },
+            directive: "bretmckee-branch",
+            want:      "* First\n\n* Second\n\n",
+            wantErr:   false,
+        },  prBody:    "Title\n\nBody\n__\nbretmckee-branch: test",
             commits:   []*github.Commit{makeCommit("sha1", "parent", "Commit msg")},
             directive: "bretmckee-branch",
             want:      "Title\n\nBody",
