@@ -12,10 +12,29 @@ GITHUB_TOKEN=${TOKEN:-${GITHUB_TOKEN:-""}}
 DRY_RUN=
 FORCE=
 
-BASE_BRANCH=${BASE_BRANCH:-$(git symbolic-ref refs/remotes/"${REMOTE}"/HEAD | sed "s@^refs/remotes/${REMOTE}/@@")}
+# Fork-mode support: set UPSTREAM_OWNER (and UPSTREAM_REPO when the upstream
+# repo is not the same as SOURCE_REPO) so the Go tools create/merge PRs against
+# the upstream. Anchor branches in upstream are synced by create-reviews via
+# the GitHub API - no dual push needed. UPSTREAM_REMOTE is optional and only
+# used to fetch the base branch from upstream after a merge; if unset the base
+# is fetched from ${REMOTE} (fine when your fork's default branch is synced).
+UPSTREAM_REMOTE=${UPSTREAM_REMOTE:-}
+UPSTREAM_OWNER=${UPSTREAM_OWNER:-}
+UPSTREAM_REPO=${UPSTREAM_REPO:-}
+
+BASE_REMOTE=${UPSTREAM_REMOTE:-${REMOTE}}
+BASE_BRANCH=${BASE_BRANCH:-$(git symbolic-ref refs/remotes/"${BASE_REMOTE}"/HEAD | sed "s@^refs/remotes/${BASE_REMOTE}/@@")}
 
 VERBOSITY=0
 THRESHOLD=INFO
+
+UPSTREAM_FLAGS=
+if [ -n "${UPSTREAM_OWNER}" ]; then
+  UPSTREAM_FLAGS="--upstream-owner=${UPSTREAM_OWNER}"
+fi
+if [ -n "${UPSTREAM_REPO}" ]; then
+  UPSTREAM_FLAGS="${UPSTREAM_FLAGS} --upstream-repo=${UPSTREAM_REPO}"
+fi
 
 # check for the github cli.
 if ! hub version > /dev/null 2>&1
@@ -31,7 +50,7 @@ then
 fi
 
 # make sure that the base branch is up to date
-git fetch "${REMOTE}" "${BASE_BRANCH}":"${BASE_BRANCH}"
+git fetch "${BASE_REMOTE}" "${BASE_BRANCH}":"${BASE_BRANCH}"
 
 # make sure the source branch is current on the server
 git push --force
@@ -42,21 +61,24 @@ do
   PR="${1}"
   shift
   echo "Processing ${PR}"
-  PR_BRANCH=$(hub pr show -f "%H" "${PR}")
+  PR_HEAD_FULL=$(hub pr show -f "%H" "${PR}")
+  # hub returns "owner:branch" for cross-fork PRs and "branch" otherwise.
+  # Strip the owner prefix so git-push-branches / git checkout see just the branch name.
+  PR_BRANCH=${PR_HEAD_FULL#*:}
   # make sure the branch to submit is current on the server
   SINGLE=true git-push-branches "${PR_BRANCH}" "${REMOTE}"
   PR_SHA=$(hub pr show -f "%sH" "${PR}")
   git checkout -q "${REMOTE}"/"${PR_BRANCH}"
   # Wait for tests then press the submit button
-  submit-pr ${FORCE} ${DRY_RUN} --base="${BASE_BRANCH}" --source-owner="${SOURCE_OWNER}" --source-repo="${SOURCE_REPO}" --login="${LOGIN}" --url="${URL}" --stderrthreshold="${THRESHOLD}" -v="${VERBOSITY}" --pr="${PR}"
+  submit-pr ${FORCE} ${DRY_RUN} --base="${BASE_BRANCH}" --source-owner="${SOURCE_OWNER}" --source-repo="${SOURCE_REPO}" ${UPSTREAM_FLAGS} --login="${LOGIN}" --url="${URL}" --stderrthreshold="${THRESHOLD}" -v="${VERBOSITY}" --pr="${PR}"
   # change the base of any PR whose base is this branch to ${BASE_BRANCH}
-  rebase-prs ${DRY_RUN} --source-owner="${SOURCE_OWNER}" --source-repo="${SOURCE_REPO}" --login="${LOGIN}"  --url="${URL}" --stderrthreshold="${THRESHOLD}" -v="${VERBOSITY}" --pr="${PR}"
+  rebase-prs ${DRY_RUN} --source-owner="${SOURCE_OWNER}" --source-repo="${SOURCE_REPO}" ${UPSTREAM_FLAGS} --login="${LOGIN}"  --url="${URL}" --stderrthreshold="${THRESHOLD}" -v="${VERBOSITY}" --pr="${PR}"
   # clean up the local branch
   git checkout -q "${ORIG_BRANCH}"
   # Some repos are configure to automatically delete the branch when the PR is
   # submitted. The || /bin/true allows this command to fail
   git branch -q -D "${REMOTE}"/"${PR_BRANCH}" || /bin/true
-  git fetch "${REMOTE}" "${BASE_BRANCH}":"${BASE_BRANCH}"
+  git fetch "${BASE_REMOTE}" "${BASE_BRANCH}":"${BASE_BRANCH}"
   git rebase --onto "${BASE_BRANCH}" $(hub pr show -f "%sH" "${PR}")
   git push --force "${REMOTE}"
 done

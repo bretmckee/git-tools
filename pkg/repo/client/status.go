@@ -39,32 +39,36 @@ func (c *Client) CheckRunsForRef(ref string, opts *github.ListCheckRunsOptions) 
 	return results, nil
 }
 
-// AggregatedStatus returns an overall status by checking both Check Runs and Combined Status APIs
-func (c *Client) AggregatedStatus(ref string) (string, error) {
+// AggregatedStatus returns an overall status by checking both Check Runs and
+// Combined Status APIs. hasChecks is true iff at least one check run or
+// combined-status entry was found for the ref; callers in fork-mode use it to
+// decide whether to fall back to querying the fork's repo.
+func (c *Client) AggregatedStatus(ref string) (string, bool, error) {
 	checkRuns, err := c.CheckRunsForRef(ref, nil)
 	if err != nil {
-		return "", fmt.Errorf("Failed to get check runs: %v", err)
+		return "", false, fmt.Errorf("Failed to get check runs: %v", err)
 	}
 
 	combinedStatus, err := c.CombinedStatus(ref)
 	if err != nil {
-		return "", fmt.Errorf("Failed to get combined status: %v", err)
+		return "", false, fmt.Errorf("Failed to get combined status: %v", err)
 	}
 
 	hasCheckRuns := checkRuns != nil && checkRuns.Total != nil && *checkRuns.Total > 0
 	hasStatuses := combinedStatus != nil && combinedStatus.TotalCount != nil && *combinedStatus.TotalCount > 0
+	hasChecks := hasCheckRuns || hasStatuses
 
 	if glog.V(2) {
-		glog.Infof("AggregatedStatus for %q: check_runs=%d, statuses=%d", ref, 
+		glog.Infof("AggregatedStatus for %q: check_runs=%d, statuses=%d", ref,
 			func() int { if hasCheckRuns { return *checkRuns.Total }; return 0 }(),
 			func() int { if hasStatuses { return *combinedStatus.TotalCount }; return 0 }())
 	}
 
-	if !hasCheckRuns && !hasStatuses {
+	if !hasChecks {
 		if glog.V(2) {
 			glog.Infof("No checks configured for %q, returning success", ref)
 		}
-		return "success", nil
+		return "success", false, nil
 	}
 
 	if hasCheckRuns {
@@ -74,7 +78,7 @@ func (c *Client) AggregatedStatus(ref string) (string, error) {
 				if glog.V(2) {
 					glog.Infof("Check run %q has status %q, overall status is pending", run.GetName(), status)
 				}
-				return "pending", nil
+				return "pending", true, nil
 			}
 		}
 	}
@@ -84,7 +88,7 @@ func (c *Client) AggregatedStatus(ref string) (string, error) {
 			if glog.V(2) {
 				glog.Infof("Combined status is pending")
 			}
-			return "pending", nil
+			return "pending", true, nil
 		}
 	}
 
@@ -96,7 +100,7 @@ func (c *Client) AggregatedStatus(ref string) (string, error) {
 					if glog.V(1) {
 						glog.Warningf("Check run %q failed with conclusion %q", run.GetName(), conclusion)
 					}
-					return "failure", nil
+					return "failure", true, nil
 				}
 			}
 		}
@@ -108,12 +112,12 @@ func (c *Client) AggregatedStatus(ref string) (string, error) {
 			if glog.V(1) {
 				glog.Warningf("Combined status has state %q", state)
 			}
-			return "failure", nil
+			return "failure", true, nil
 		}
 	}
 
 	if glog.V(2) {
 		glog.Infof("All checks passed for %q", ref)
 	}
-	return "success", nil
+	return "success", true, nil
 }

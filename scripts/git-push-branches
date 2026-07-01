@@ -15,7 +15,8 @@ set -x -e -o pipefail
 SINGLE=${SINGLE:-false}
 DIRECTIVE='bretmckee-branch'  # any regex metacharacters should be escaped
 SKIP='wip'
-BRANCH_PREFIX='bretmckee/'
+LOGIN=${LOGIN:-bretmckee}
+BRANCH_PREFIX=${BRANCH_PREFIX:-users/${LOGIN}/}
 DEFAULT_REMOTE=origin
 
 # For now, require the user to specify the branch
@@ -42,7 +43,10 @@ target_branch() {
         printf >&2 'error: multiple "%s" directives\n' "${DIRECTIVE}"
         return 1
     fi
-    printf '%s%s\n' "${BRANCH_PREFIX}" "${directive}"
+    case "${directive}" in
+      ${BRANCH_PREFIX}*) printf '%s\n' "${directive}" ;;
+      *)                 printf '%s%s\n' "${BRANCH_PREFIX}" "${directive}" ;;
+    esac
 }
 
 skip() {
@@ -52,7 +56,7 @@ skip() {
 MERGE_BASE=$(git merge-base HEAD "${REMOTE}"/"${PARENT_BRANCH}")
 if [ -z ${MERGE_BASE} ]
 then
-  echo "unable to determine merge base for HEAD and ${PARENT}" 1>&2
+  echo "unable to determine merge base for HEAD and ${PARENT_BRANCH}" 1>&2
   exit 1
 fi
 
@@ -102,10 +106,10 @@ do
 
   if [ "X${EXISTING_HASH}" != "X${SHA}" ]
   then
-    echo "Assigning branch ${BRANCH_NAME} to commit ${SHA} based on marker in ${COMMIT}"
+    echo "Assigning branch ${BRANCH_NAME} to commit ${SHA}"
     git push --force-with-lease "${REMOTE}" ${SHA}:refs/heads/"${BRANCH_NAME}"
   else
-    echo "Not updating unchanged branch ${BRANCH_NAME} with command " git push --force-with-lease "${REMOTE}" ${SHA}:refs/heads/"${BRANCH_NAME}"
+    echo "Not updating unchanged branch ${BRANCH_NAME}"
   fi
   if ${SINGLE}
   then

@@ -2,8 +2,10 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -229,7 +231,7 @@ func TestValidatePRAndBranches(t *testing.T) {
 				t.Fatalf("Failed to create client: %v", err)
 			}
 
-			err = validatePRAndBranches(c, tt.pr, tt.baseBranch, tt.force)
+			err = validatePRAndBranches(&clients{fork: c, upstream: c}, tt.pr, tt.baseBranch, tt.force)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("validatePRAndBranches() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -344,7 +346,7 @@ func TestWaitForChecks(t *testing.T) {
 
 			noopSleep := func(d time.Duration) {}
 
-			err = waitForChecks(c, "testref", 123, tt.force, noopSleep)
+			err = waitForChecks(&clients{fork: c, upstream: c}, "testref", 123, tt.force, noopSleep)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("waitForChecks() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -512,7 +514,7 @@ func TestSubmitMsg(t *testing.T) {
 				t.Fatalf("Failed to create client: %v", err)
 			}
 
-			got, err := submitMsg(c, tt.prBody, tt.first, tt.last, tt.directive)
+			got, err := submitMsg(&clients{fork: c, upstream: c}, tt.prBody, tt.first, tt.last, tt.directive)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("submitMsg() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -762,7 +764,7 @@ func TestSubmitPR(t *testing.T) {
 				t.Fatalf("Failed to create client: %v", err)
 			}
 
-			err = submitPR(c, tt.dryRun, tt.force, tt.baseBranch, tt.pr.GetNumber(), "squash", tt.directive)
+			err = submitPR(&clients{fork: c, upstream: c}, tt.dryRun, tt.force, tt.baseBranch, tt.pr.GetNumber(), "squash", tt.directive)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("submitPR() error = %v, wantErr %v", err, tt.wantErr)
 				return
@@ -775,5 +777,191 @@ func TestSubmitPR(t *testing.T) {
 				t.Errorf("submitPR() merged = %v, want %v", merged, tt.wantMerged)
 			}
 		})
+	}
+}
+
+func checkRunsPayload(count int, state string) string {
+	if count == 0 {
+		return `{"total_count": 0, "check_runs": []}`
+	}
+	return fmt.Sprintf(`{
+		"total_count": %d,
+		"check_runs": [{"id": 1, "status": %q, "conclusion": %q, "name": "ci"}]
+	}`, count, mapStateToCheckStatus(state), mapStateToConclusion(state))
+}
+
+func TestAggregatedStatusFallback(t *testing.T) {
+	tests := []struct {
+		name         string
+		sameRepo     bool
+		upstreamRuns int
+		upstreamOk   bool
+		forkRuns     int
+		forkOk       bool
+		wantState    string
+		wantForkHit  bool
+	}{
+		{
+			name:         "Upstream has checks: fork not consulted",
+			upstreamRuns: 1,
+			upstreamOk:   true,
+			forkRuns:     0,
+			wantState:    "success",
+			wantForkHit:  false,
+		},
+		{
+			name:         "Upstream empty, fork has success: use fork",
+			upstreamRuns: 0,
+			forkRuns:     1,
+			forkOk:       true,
+			wantState:    "success",
+			wantForkHit:  true,
+		},
+		{
+			name:         "Both empty: upstream success wins",
+			upstreamRuns: 0,
+			forkRuns:     0,
+			wantState:    "success",
+			wantForkHit:  true,
+		},
+		{
+			name:         "Upstream empty, fork failure: use fork",
+			upstreamRuns: 0,
+			forkRuns:     1,
+			forkOk:       false,
+			wantState:    "failure",
+			wantForkHit:  true,
+		},
+		{
+			name:         "Same-repo mode: no fork fallback attempted",
+			sameRepo:     true,
+			upstreamRuns: 0,
+			wantState:    "success",
+			wantForkHit:  false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var forkHit bool
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				upstreamPrefix := "/repos/upstream/repo/commits/testref/"
+				forkPrefix := "/repos/fork/repo/commits/testref/"
+				switch {
+				case strings.HasPrefix(r.URL.Path, upstreamPrefix+"check-runs"):
+					fmt.Fprint(w, checkRunsPayload(tt.upstreamRuns, stateForOk(tt.upstreamOk)))
+				case strings.HasPrefix(r.URL.Path, upstreamPrefix+"status"):
+					fmt.Fprintf(w, `{"state": "success", "total_count": 0, "statuses": []}`)
+				case strings.HasPrefix(r.URL.Path, forkPrefix+"check-runs"):
+					forkHit = true
+					fmt.Fprint(w, checkRunsPayload(tt.forkRuns, stateForOk(tt.forkOk)))
+				case strings.HasPrefix(r.URL.Path, forkPrefix+"status"):
+					forkHit = true
+					fmt.Fprintf(w, `{"state": "success", "total_count": 0, "statuses": []}`)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+
+			var cs *clients
+			if tt.sameRepo {
+				c, err := client.Create(server.URL, server.URL, "upstream", "repo", "user", "token")
+				if err != nil {
+					t.Fatalf("Create failed: %v", err)
+				}
+				cs = &clients{fork: c, upstream: c}
+			} else {
+				fork, upstream, err := client.CreatePair(server.URL, server.URL, "fork", "repo", "upstream", "repo", "user", "token")
+				if err != nil {
+					t.Fatalf("CreatePair failed: %v", err)
+				}
+				cs = &clients{fork: fork, upstream: upstream}
+			}
+
+			state, err := cs.aggregatedStatus("testref")
+			if err != nil {
+				t.Fatalf("aggregatedStatus failed: %v", err)
+			}
+			if state != tt.wantState {
+				t.Errorf("state = %q, want %q", state, tt.wantState)
+			}
+			if forkHit != tt.wantForkHit {
+				t.Errorf("forkHit = %v, want %v", forkHit, tt.wantForkHit)
+			}
+		})
+	}
+}
+
+func stateForOk(ok bool) string {
+	if ok {
+		return "success"
+	}
+	return "failure"
+}
+
+func TestSubmitPR_ForkModeMergesUpstream(t *testing.T) {
+	const (
+		prNumber = 7
+		headSHA  = "head-sha"
+		baseSHA  = "base-sha"
+		headRef  = "feature"
+	)
+
+	var mergePath string
+	var mergeCalled bool
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == "GET" && r.URL.Path == fmt.Sprintf("/repos/upstream/repo/pulls/%d", prNumber):
+			json.NewEncoder(w).Encode(&github.PullRequest{
+				Number: github.Int(prNumber),
+				Merged: github.Bool(false),
+				Body:   github.String("PR body"),
+				Base:   &github.PullRequestBranch{Ref: github.String("main"), SHA: github.String(baseSHA)},
+				Head:   &github.PullRequestBranch{Ref: github.String(headRef), SHA: github.String(headSHA)},
+			})
+		case r.Method == "GET" && r.URL.Path == "/repos/upstream/repo/branches/main":
+			json.NewEncoder(w).Encode(&github.Branch{
+				Commit: &github.RepositoryCommit{SHA: github.String(baseSHA)},
+			})
+		case strings.HasPrefix(r.URL.Path, "/repos/upstream/repo/commits/"+headRef):
+			fmt.Fprint(w, `{"total_count": 0, "check_runs": []}`)
+		case strings.HasPrefix(r.URL.Path, "/repos/fork/repo/commits/"+headRef+"/check-runs"):
+			fmt.Fprint(w, checkRunsPayload(1, "success"))
+		case strings.HasPrefix(r.URL.Path, "/repos/fork/repo/commits/"+headRef+"/status"):
+			fmt.Fprint(w, `{"state": "success", "total_count": 0, "statuses": []}`)
+		case r.Method == "GET" && strings.Contains(r.URL.Path, "/git/commits/"+headSHA):
+			json.NewEncoder(w).Encode(&github.Commit{
+				SHA:     github.String(headSHA),
+				Message: github.String("Head commit"),
+				Parents: []github.Commit{{SHA: github.String(baseSHA)}},
+			})
+		case r.Method == "PUT" && strings.HasSuffix(r.URL.Path, fmt.Sprintf("/pulls/%d/merge", prNumber)):
+			mergeCalled = true
+			mergePath = r.URL.Path
+			json.NewEncoder(w).Encode(&github.PullRequestMergeResult{Merged: github.Bool(true)})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	fork, upstream, err := client.CreatePair(server.URL, server.URL, "fork", "repo", "upstream", "repo", "user", "token")
+	if err != nil {
+		t.Fatalf("CreatePair failed: %v", err)
+	}
+	cs := &clients{fork: fork, upstream: upstream}
+
+	if err := submitPR(cs, false, false, "main", prNumber, "squash", "bretmckee-branch"); err != nil {
+		t.Fatalf("submitPR failed: %v", err)
+	}
+
+	if !mergeCalled {
+		t.Fatalf("merge PUT was not called")
+	}
+	wantMergePath := fmt.Sprintf("/repos/upstream/repo/pulls/%d/merge", prNumber)
+	if mergePath != wantMergePath {
+		t.Errorf("merge path = %q, want %q (must target upstream, not fork)", mergePath, wantMergePath)
 	}
 }

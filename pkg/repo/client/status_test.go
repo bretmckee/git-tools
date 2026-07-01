@@ -596,7 +596,7 @@ func TestAggregatedStatus(t *testing.T) {
 				client: client,
 			}
 
-			state, err := c.AggregatedStatus("test-ref")
+			state, _, err := c.AggregatedStatus("test-ref")
 
 			if tt.wantErr {
 				if err == nil {
@@ -612,6 +612,90 @@ func TestAggregatedStatus(t *testing.T) {
 
 			if state != tt.wantState {
 				t.Errorf("expected state %q, got %q", tt.wantState, state)
+			}
+		})
+	}
+}
+
+func TestAggregatedStatusHasChecks(t *testing.T) {
+	tests := []struct {
+		name              string
+		checkRunsResponse string
+		statusResponse    string
+		wantHasChecks     bool
+	}{
+		{
+			name:              "No check runs and no statuses",
+			checkRunsResponse: `{"total_count": 0, "check_runs": []}`,
+			statusResponse:    `{"state": "success", "total_count": 0, "statuses": []}`,
+			wantHasChecks:     false,
+		},
+		{
+			name: "Has check runs only",
+			checkRunsResponse: `{
+				"total_count": 1,
+				"check_runs": [{"id": 1, "status": "completed", "conclusion": "success", "name": "test"}]
+			}`,
+			statusResponse: `{"state": "success", "total_count": 0, "statuses": []}`,
+			wantHasChecks:  true,
+		},
+		{
+			name:              "Has combined status only",
+			checkRunsResponse: `{"total_count": 0, "check_runs": []}`,
+			statusResponse: `{
+				"state": "success",
+				"total_count": 1,
+				"statuses": [{"state": "success", "context": "ci/legacy"}]
+			}`,
+			wantHasChecks: true,
+		},
+		{
+			name: "Has both check runs and combined status",
+			checkRunsResponse: `{
+				"total_count": 1,
+				"check_runs": [{"id": 1, "status": "completed", "conclusion": "success", "name": "test"}]
+			}`,
+			statusResponse: `{
+				"state": "success",
+				"total_count": 1,
+				"statuses": [{"state": "success", "context": "ci/legacy"}]
+			}`,
+			wantHasChecks: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/repos/test-owner/test-repo/commits/test-ref/check-runs" {
+					fmt.Fprint(w, tt.checkRunsResponse)
+				} else if r.URL.Path == "/repos/test-owner/test-repo/commits/test-ref/status" {
+					fmt.Fprint(w, tt.statusResponse)
+				} else {
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+
+			gh, err := github.NewEnterpriseClient(server.URL, server.URL, nil)
+			if err != nil {
+				t.Fatalf("failed to create test client: %v", err)
+			}
+
+			c := &Client{
+				owner:  "test-owner",
+				repo:   "test-repo",
+				login:  "test-user",
+				ctx:    context.Background(),
+				client: gh,
+			}
+
+			_, hasChecks, err := c.AggregatedStatus("test-ref")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if hasChecks != tt.wantHasChecks {
+				t.Errorf("hasChecks = %v, want %v", hasChecks, tt.wantHasChecks)
 			}
 		})
 	}

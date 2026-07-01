@@ -3,7 +3,6 @@ package repodata
 import (
 	"fmt"
 
-	"github.com/bretmckee/git-tools/pkg/repo"
 	"github.com/bretmckee/git-tools/pkg/repo/client"
 	"github.com/golang/glog"
 	"github.com/google/go-github/v28/github"
@@ -11,24 +10,69 @@ import (
 )
 
 type RepoData struct {
-	repo.Repo
+	Fork        *client.Client
+	Upstream    *client.Client
 	BranchBySHA map[string][]*github.Branch
 	PrBySHA     map[string]*github.PullRequest
 	PrByNumber  map[int]*github.PullRequest
 }
 
-func Create(baseURL, uploadURL, sourceOwner, sourceRepo, login, token string) (*RepoData, error) {
-	c, err := client.Create(baseURL, uploadURL, sourceOwner, sourceRepo, login, token)
+func Create(baseURL, uploadURL, sourceOwner, sourceRepo, upstreamOwner, upstreamRepo, login, token string) (*RepoData, error) {
+	fork, upstream, err := client.CreatePair(baseURL, uploadURL, sourceOwner, sourceRepo, upstreamOwner, upstreamRepo, login, token)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create client: %v", err)
+		return nil, fmt.Errorf("failed to create clients: %v", err)
 	}
 	r := &RepoData{
-		Repo: c,
+		Fork:     fork,
+		Upstream: upstream,
 	}
 	if err := r.LoadData(); err != nil {
 		return nil, fmt.Errorf("failed to load data: %v", err)
 	}
 	return r, nil
+}
+
+// IsFork reports whether the tool is operating in fork mode (source and
+// upstream differ). Same-repo mode is signalled by fork and upstream being the
+// same underlying *client.Client (see client.CreatePair).
+func (r *RepoData) IsFork() bool {
+	return r.Fork != r.Upstream
+}
+
+// HeadRefFor returns the value to use for NewPullRequest.Head. In same-repo
+// mode it is the bare branch name; in fork mode it is "login:branch" as
+// required by GitHub for cross-fork PRs.
+func (r *RepoData) HeadRefFor(branch string) string {
+	if !r.IsFork() {
+		return branch
+	}
+	return fmt.Sprintf("%s:%s", r.Fork.Owner(), branch)
+}
+
+// SyncAnchor keeps the upstream anchor branch pointing at the fork's SHA so
+// cross-fork stacked PRs can reference it as their base. No-op in same-repo
+// mode. Relies on GitHub's fork network sharing the git object store: a SHA
+// pushed only to the fork can be referenced by a ref in upstream.
+func (r *RepoData) SyncAnchor(branchName, sha string) error {
+	if !r.IsFork() {
+		return nil
+	}
+	if err := r.Upstream.EnsureRef(branchName, sha); err != nil {
+		return fmt.Errorf("SyncAnchor: %v", err)
+	}
+	return nil
+}
+
+func (r *RepoData) Branch(name string) (*github.Branch, error) {
+	return r.Fork.Branch(name)
+}
+
+func (r *RepoData) Commit(sha string) (*github.Commit, error) {
+	return r.Fork.Commit(sha)
+}
+
+func (r *RepoData) CreatePullRequest(npr *github.NewPullRequest) (*github.PullRequest, error) {
+	return r.Upstream.CreatePullRequest(npr)
 }
 
 const MaxChainLength = 150
@@ -88,47 +132,8 @@ func buildChains(prs map[string]*github.PullRequest) ([]Chain, error) {
 	return chains, nil
 }
 
-//XXfunc processChain(c repo.Repo, prs map[string]*github.PullRequest, chain Chain) error {
-//XX	glog.Infof("processChain begins for %v", chain)
-//XX	mergedPrevious := false
-//XX	for _, sha := range chain.SHAs {
-//XX		pr, ok := prs[sha]
-//XX		if !ok {
-//XX			return fmt.Errorf("Unable to locate pr for %q", sha)
-//XX		}
-//XX		id := int(*pr.Number)
-//XX		pr, err := c.PullRequest(id)
-//XX		if err != nil {
-//XX			return fmt.Errorf("Unable to get pr %d for %q", id)
-//XX		}
-//XX		// If we merged the previous PR, we have to change the base of this one.
-//XX		if mergedPrevious {
-//XX			if err := c.ChangePullRequestBase(id); err != nil {
-//XX				return fmt.Errorf("Failed to update base for %d: %v", id, err)
-//XX			}
-//XX			mergedPrevious = false
-//XX			glog.Warning("Short circuit returning, Mergable=%v", prs[sha].Mergeable)
-//XX			return nil
-//XX		}
-//XX		if pr.Mergeable == nil {
-//XX			glog.Infof("processChain ends for %s which has nil Mergeable", sha)
-//XX			return nil
-//XX		}
-//XX		if !*pr.Mergeable {
-//XX			glog.Infof("processChain ends for %s because Mergeable is false", sha)
-//XX			return nil
-//XX		}
-//XX		glog.Infof("merging branch %d", id)
-//XX		if prs[sha], err = c.MergePullRequest(id, sha, *pr.Body); err != nil {
-//XX			return fmt.Errorf("Unable to merge %d: %v", id, err)
-//XX		}
-//XX		mergedPrevious = true
-//XX	}
-//XX	return nil
-//XX}
-
 func (r *RepoData) loadBranches() error {
-	branches, err := r.Branches()
+	branches, err := r.Fork.Branches()
 	if err != nil {
 		return fmt.Errorf("list branches failed: %v", err)
 	}
@@ -141,18 +146,17 @@ func (r *RepoData) loadBranches() error {
 }
 
 func (r *RepoData) loadPRs() error {
-	prs, err := r.PullRequests()
+	prs, err := r.Upstream.PullRequests()
 	if err != nil {
 		return fmt.Errorf("unable to get pull requests: %v", err)
 	}
 	glog.V(2).Infof("got %d pull requests", len(prs))
-	// TODO(bretmckee): Make this by SHA of pull request branch
 	r.PrBySHA = make(map[string]*github.PullRequest)
 	r.PrByNumber = make(map[int]*github.PullRequest)
 	for _, pr := range prs {
 		sha := *pr.Head.SHA
 		id := *pr.Number
-		fullPR, err := r.PullRequest(id)
+		fullPR, err := r.Upstream.PullRequest(id)
 		if err != nil {
 			return fmt.Errorf("unable to fetch full PR %d (sha %s): %v", id, sha, err)
 		}

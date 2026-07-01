@@ -4,8 +4,13 @@ set -x -e -o pipefail
 BRANCH="${1:develop}"
 REMOTE="${2:origin}"
 
-echo "update branch ${BRANCH} from remote ${REMOTE}"
+# UPSTREAM_REMOTE is optional and only used to fetch the base branch from the
+# upstream repo. If unset the base is fetched from ${REMOTE}.
+UPSTREAM_REMOTE=${UPSTREAM_REMOTE:-}
+BASE_REMOTE=${UPSTREAM_REMOTE:-${REMOTE}}
 
-git fetch -p "${REMOTE}" "${BRANCH}":"${BRANCH}"
+echo "update branch ${BRANCH} from remote ${BASE_REMOTE}"
+
+git fetch -p "${BASE_REMOTE}" "${BRANCH}":"${BRANCH}"
 git rebase "${BRANCH}"
 SINGLE=true git pb "${BRANCH}" "${REMOTE}"

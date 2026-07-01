@@ -24,9 +24,10 @@ func createPR(r *repodata.RepoData, branch, base, oldest, newest string, draft, 
 		return fmt.Errorf("CreatePR failed to split the message for commit %s (it probably does not have a body)", oldest)
 	}
 
+	head := r.HeadRefFor(branch)
 	npr := &github.NewPullRequest{
 		Title:               github.String(values[0]),
-		Head:                github.String(branch),
+		Head:                github.String(head),
 		Base:                github.String(base),
 		Body:                github.String(values[1]),
 		MaintainerCanModify: github.Bool(false),
@@ -34,10 +35,10 @@ func createPR(r *repodata.RepoData, branch, base, oldest, newest string, draft, 
 	}
 	glog.V(2).Infof("npr=%# v", pretty.Formatter(*npr))
 	if dryRun {
-		glog.Infof("dryrun skipping: Creating PR for branch %s based on %s, oldest=%s, newest=%s", branch, base, oldest, newest)
+		glog.Infof("dryrun skipping: Creating PR with head %s based on %s, oldest=%s, newest=%s", head, base, oldest, newest)
 		return nil
 	}
-	glog.V(2).Infof("Creating PR for branch %s based on %s, oldest=%s, newest=%s", branch, base, oldest, newest)
+	glog.V(2).Infof("Creating PR with head %s based on %s, oldest=%s, newest=%s", head, base, oldest, newest)
 	pr, err := r.CreatePullRequest(npr)
 	if err != nil {
 		return fmt.Errorf("createPR failed to pr for %s:%v", branch, err)
@@ -56,9 +57,9 @@ func findBranch(baseBranch string, branches []*github.Branch) (*github.Branch, e
 				return br, nil
 			}
 		}
-		return nil, fmt.Errorf("findBranch: failed to find non-base branch for %s", branches[0].Commit.SHA)
+		return nil, fmt.Errorf("findBranch: failed to find non-base branch for %s", branches[0].GetCommit().GetSHA())
 	default:
-		return nil, fmt.Errorf("findbranch: commit %s has invalid number of branches (%d), expect 1 or 2", branches[0].Commit.SHA, l)
+		return nil, fmt.Errorf("findbranch: commit %s has invalid number of branches (%d), expect 1 or 2", branches[0].GetCommit().GetSHA(), l)
 	}
 }
 
@@ -74,7 +75,7 @@ func createPRs(r *repodata.RepoData, tipBranch, baseBranch string, maxCreates in
 	}
 	glog.V(2).Infof("Branch %# v\n", pretty.Formatter(*b))
 
-	bb, err := r.Branch(baseBranch)
+	bb, err := r.Upstream.Branch(baseBranch)
 	if err != nil {
 		return fmt.Errorf("failed to get base branch %q: %v", baseBranch, err)
 	}
@@ -110,6 +111,9 @@ func createPRs(r *repodata.RepoData, tipBranch, baseBranch string, maxCreates in
 		if err != nil {
 			return fmt.Errorf("failed to find branch: %v", err)
 		}
+		if err := r.SyncAnchor(*branch.Name, *branch.Commit.SHA); err != nil {
+			return err
+		}
 		// We are at a commit that needs a PR. Create one unless there already is
 		// one.
 		if pr, ok := r.PrBySHA[*branch.Commit.SHA]; ok {
@@ -134,18 +138,20 @@ func createPRs(r *repodata.RepoData, tipBranch, baseBranch string, maxCreates in
 
 func main() {
 	var (
-		baseBranch    = flag.String("base", "master", "Base Branch")
-		baseURL       = flag.String("url", "", "GitHub Base URL")
-		branch        = flag.String("branch", "", "Starting Branch")
-		draft         = flag.Bool("draft", true, "create draft PR")
-		dryRun        = flag.Bool("dry-run", false, "Dry Run mode -- no pull requests will be created")
-		includeBranch = flag.Bool("include-branch", false, "Create a PR for --branch")
-		login         = flag.String("login", "", "Login of the user to create for.")
-		maxCreates    = flag.Int("max-creates", 10, "Maximum number of pull requests to create")
-		sourceOwner   = flag.String("source-owner", "", "Name of the owner (user or org) of the repo to create the commit in.")
-		sourceRepo    = flag.String("source-repo", "", "Name of repo to create the commit in.")
-		token         = flag.String("token", "", "github auth token to use (also checks environment GITHUB_TOKEN")
-		uploadURL     = flag.String("upload", "", "GitHub Upload URL")
+		baseBranch     = flag.String("base", "master", "Base Branch")
+		baseURL        = flag.String("url", "", "GitHub Base URL")
+		branch         = flag.String("branch", "", "Starting Branch")
+		draft          = flag.Bool("draft", true, "create draft PR")
+		dryRun         = flag.Bool("dry-run", false, "Dry Run mode -- no pull requests will be created")
+		includeBranch  = flag.Bool("include-branch", false, "Create a PR for --branch")
+		login          = flag.String("login", "", "Login of the user to create for.")
+		maxCreates     = flag.Int("max-creates", 10, "Maximum number of pull requests to create")
+		sourceOwner    = flag.String("source-owner", "", "Name of the owner (user or org) of the repo to create the commit in.")
+		sourceRepo     = flag.String("source-repo", "", "Name of repo to create the commit in.")
+		token          = flag.String("token", "", "github auth token to use (also checks environment GITHUB_TOKEN")
+		uploadURL      = flag.String("upload", "", "GitHub Upload URL")
+		upstreamOwner  = flag.String("upstream-owner", "", "Owner of the upstream repo where PRs are created. Defaults to --source-owner (same-repo mode).")
+		upstreamRepo   = flag.String("upstream-repo", "", "Name of the upstream repo where PRs are created. Defaults to --source-repo (same-repo mode).")
 	)
 	flag.Parse()
 	if *token == "" {
@@ -160,13 +166,19 @@ func main() {
 	if *branch == "" || *baseBranch == "" {
 		glog.Exit("Both branch and base must be specified")
 	}
+	if *upstreamOwner == "" {
+		*upstreamOwner = *sourceOwner
+	}
+	if *upstreamRepo == "" {
+		*upstreamRepo = *sourceRepo
+	}
 
 	b, u, err := urls.Get(*baseURL, *uploadURL)
 	if err != nil {
 		glog.Exitf("failed to get URLs: %v", err)
 	}
 
-	r, err := repodata.Create(b, u, *sourceOwner, *sourceRepo, *login, *token)
+	r, err := repodata.Create(b, u, *sourceOwner, *sourceRepo, *upstreamOwner, *upstreamRepo, *login, *token)
 	if err != nil {
 		glog.Exitf("failed to create repodata: %v", err)
 	}

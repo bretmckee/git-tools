@@ -37,3 +37,31 @@ func (c *Client) Branch(name string) (*github.Branch, error) {
 	}
 	return b, nil
 }
+
+// EnsureRef tries UpdateRef first (the common path once the anchor exists),
+// falling back to CreateRef when the branch is new. Both attempts are surfaced
+// in the error so the caller can tell whether GitHub rejected the SHA (which
+// suggests the fork-network object store is not shared with this repo, and
+// the user needs to push the branch manually) or something else went wrong.
+func (c *Client) EnsureRef(branchName, sha string) error {
+	refName := "refs/heads/" + branchName
+	ref := &github.Reference{
+		Ref:    github.String(refName),
+		Object: &github.GitObject{SHA: github.String(sha)},
+	}
+
+	_, _, updateErr := c.client.Git.UpdateRef(c.ctx, c.owner, c.repo, ref, true)
+	if updateErr == nil {
+		glog.V(2).Infof("EnsureRef updated %s in %s/%s to %s", refName, c.owner, c.repo, sha)
+		return nil
+	}
+
+	_, _, createErr := c.client.Git.CreateRef(c.ctx, c.owner, c.repo, ref)
+	if createErr == nil {
+		glog.V(2).Infof("EnsureRef created %s in %s/%s at %s", refName, c.owner, c.repo, sha)
+		return nil
+	}
+
+	return fmt.Errorf("EnsureRef: failed to update or create %s in %s/%s at %s (update err: %v; create err: %v)",
+		refName, c.owner, c.repo, sha, updateErr, createErr)
+}

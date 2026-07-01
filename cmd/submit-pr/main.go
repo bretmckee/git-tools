@@ -23,6 +23,51 @@ var errAlreadyMerged = fmt.Errorf("PR is already merged")
 
 type sleepFunc func(time.Duration)
 
+// clients bundles the fork and upstream clients so helpers can route each call
+// to the right repo. Same-repo mode is signalled by fork == upstream (see
+// client.CreatePair).
+type clients struct {
+	fork     *client.Client
+	upstream *client.Client
+}
+
+func (cs *clients) isFork() bool {
+	return cs.fork != cs.upstream
+}
+
+// aggregatedStatus queries upstream first; when in fork mode and upstream
+// reports no checks configured, it falls back to the fork (CI often runs on
+// push to the fork rather than on pull_request against upstream).
+func (cs *clients) aggregatedStatus(ref string) (string, error) {
+	state, hasChecks, err := cs.upstream.AggregatedStatus(ref)
+	if err != nil {
+		return "", err
+	}
+	if hasChecks || !cs.isFork() {
+		return state, nil
+	}
+	forkState, forkHasChecks, forkErr := cs.fork.AggregatedStatus(ref)
+	if forkErr != nil {
+		glog.Warningf("fork AggregatedStatus for %q failed: %v; using upstream result", ref, forkErr)
+		return state, nil
+	}
+	if forkHasChecks {
+		return forkState, nil
+	}
+	return state, nil
+}
+
+// commit returns the commit at sha, preferring upstream (where PR head commits
+// are replicated via refs/pull/N/head) and falling back to the fork when
+// upstream can't resolve it.
+func (cs *clients) commit(sha string) (*github.Commit, error) {
+	c, err := cs.upstream.Commit(sha)
+	if err == nil || !cs.isFork() {
+		return c, err
+	}
+	return cs.fork.Commit(sha)
+}
+
 func stripDirectiveMarker(message, directive string) string {
 	// Normalize line endings to handle both Unix (LF) and Windows (CRLF)
 	normalized := strings.ReplaceAll(message, "\r\n", "\n")
@@ -54,7 +99,7 @@ func stripDirectiveMarker(message, directive string) string {
 	return cleaned
 }
 
-func validatePRAndBranches(c *client.Client, pr *github.PullRequest, baseBranch string, force bool) error {
+func validatePRAndBranches(cs *clients, pr *github.PullRequest, baseBranch string, force bool) error {
 	if pr.GetMerged() {
 		glog.Warningf("PR %d is already merged.", pr.GetNumber())
 		return errAlreadyMerged
@@ -68,7 +113,7 @@ func validatePRAndBranches(c *client.Client, pr *github.PullRequest, baseBranch 
 		glog.Warningf("because force was specified, ignoring error %v", err)
 	}
 
-	bb, err := c.Branch(baseBranch)
+	bb, err := cs.upstream.Branch(baseBranch)
 	if err != nil {
 		return fmt.Errorf("failed to get base branch %q: %v", baseBranch, err)
 	}
@@ -84,7 +129,7 @@ func validatePRAndBranches(c *client.Client, pr *github.PullRequest, baseBranch 
 	return nil
 }
 
-func waitForChecks(c *client.Client, ref string, number int, force bool, sleepFn sleepFunc) error {
+func waitForChecks(cs *clients, ref string, number int, force bool, sleepFn sleepFunc) error {
 	const retrySeconds = 60
 
 	if sleepFn == nil {
@@ -92,7 +137,7 @@ func waitForChecks(c *client.Client, ref string, number int, force bool, sleepFn
 	}
 
 	for {
-		state, err := c.AggregatedStatus(ref)
+		state, err := cs.aggregatedStatus(ref)
 		if err != nil {
 			return fmt.Errorf("failed to get status: %v", err)
 		}
@@ -120,12 +165,12 @@ func waitForChecks(c *client.Client, ref string, number int, force bool, sleepFn
 	}
 }
 
-func submitMsg(c *client.Client, prBody string, first, last string, directive string) (string, error) {
+func submitMsg(cs *clients, prBody string, first, last string, directive string) (string, error) {
 	msg := ""
 	l := 0
 	glog.V(2).Infof("submitMsg begins first=%s, last=%s", first, last)
 	for pos := first; pos != last; l++ {
-		commit, err := c.Commit(pos)
+		commit, err := cs.commit(pos)
 		if err != nil {
 			return "", fmt.Errorf("submitMsg: failed to retrieve commit: %v", err)
 		}
@@ -150,24 +195,24 @@ func submitMsg(c *client.Client, prBody string, first, last string, directive st
 	return msg, nil
 }
 
-func submitPR(c *client.Client, dryRun, force bool, baseBranch string, number int, method, directive string) error {
-	pr, err := c.PullRequest(number)
+func submitPR(cs *clients, dryRun, force bool, baseBranch string, number int, method, directive string) error {
+	pr, err := cs.upstream.PullRequest(number)
 	if err != nil {
 		return fmt.Errorf("submitPR: failed to get %d: %v", number, err)
 	}
 
-	if err := validatePRAndBranches(c, pr, baseBranch, force); err != nil {
+	if err := validatePRAndBranches(cs, pr, baseBranch, force); err != nil {
 		if err == errAlreadyMerged {
 			return nil
 		}
 		return err
 	}
 
-	if err := waitForChecks(c, pr.GetHead().GetRef(), number, force, nil); err != nil {
+	if err := waitForChecks(cs, pr.GetHead().GetRef(), number, force, nil); err != nil {
 		return err
 	}
 
-	msg, err := submitMsg(c, *pr.Body, pr.GetHead().GetSHA(), pr.GetBase().GetSHA(), directive)
+	msg, err := submitMsg(cs, *pr.Body, pr.GetHead().GetSHA(), pr.GetBase().GetSHA(), directive)
 	if err != nil {
 		return fmt.Errorf("submitPR failed to build submitMsg: %v", err)
 	}
@@ -177,7 +222,7 @@ func submitPR(c *client.Client, dryRun, force bool, baseBranch string, number in
 		return nil
 	}
 
-	if _, err := c.MergePullRequest(number, pr.GetHead().GetSHA(), method, msg); err != nil {
+	if _, err := cs.upstream.MergePullRequest(number, pr.GetHead().GetSHA(), method, msg); err != nil {
 		return fmt.Errorf("failed to submit PR %d: %v", number, err)
 	}
 
@@ -187,18 +232,20 @@ func submitPR(c *client.Client, dryRun, force bool, baseBranch string, number in
 
 func main() {
 	var (
-		baseBranch  = flag.String("base", "master", "Base branch")
-		baseURL     = flag.String("url", "", "GitHub Base URL")
-		directive   = flag.String("directive", "bretmckee-branch", "Directive marker to remove from commit messages")
-		dryRun      = flag.Bool("dry-run", false, "Dry Run mode -- no pull requests will be created")
-		force       = flag.Bool("force", false, "Submit even if not fully approved.")
-		login       = flag.String("login", "", "Login of the user to submit for.")
-		method      = flag.String("method", "squash", "github merge method -- [merge|rebase|squash]")
-		pr          = flag.Int("pr", 0, "id of the pull request to submit")
-		sourceOwner = flag.String("source-owner", "", "Name of the owner (user or org) of the repo to create the commit in.")
-		sourceRepo  = flag.String("source-repo", "", "Name of repo to create the commit in.")
-		token       = flag.String("token", "", "github auth token to use (also checks environment GITHUB_TOKEN")
-		uploadURL   = flag.String("upload", "", "GitHub Upload URL")
+		baseBranch    = flag.String("base", "master", "Base branch")
+		baseURL       = flag.String("url", "", "GitHub Base URL")
+		directive     = flag.String("directive", "bretmckee-branch", "Directive marker to remove from commit messages")
+		dryRun        = flag.Bool("dry-run", false, "Dry Run mode -- no pull requests will be created")
+		force         = flag.Bool("force", false, "Submit even if not fully approved.")
+		login         = flag.String("login", "", "Login of the user to submit for.")
+		method        = flag.String("method", "squash", "github merge method -- [merge|rebase|squash]")
+		pr            = flag.Int("pr", 0, "id of the pull request to submit")
+		sourceOwner   = flag.String("source-owner", "", "Name of the owner (user or org) of the repo to create the commit in.")
+		sourceRepo    = flag.String("source-repo", "", "Name of repo to create the commit in.")
+		token         = flag.String("token", "", "github auth token to use (also checks environment GITHUB_TOKEN")
+		uploadURL     = flag.String("upload", "", "GitHub Upload URL")
+		upstreamOwner = flag.String("upstream-owner", "", "Owner of the upstream repo where PRs live. Defaults to --source-owner (same-repo mode).")
+		upstreamRepo  = flag.String("upstream-repo", "", "Name of the upstream repo where PRs live. Defaults to --source-repo (same-repo mode).")
 	)
 	flag.Parse()
 	if *token == "" {
@@ -213,18 +260,25 @@ func main() {
 	if *pr <= 0 {
 		glog.Exit("An positive integer value must be specified for `-pr`")
 	}
+	if *upstreamOwner == "" {
+		*upstreamOwner = *sourceOwner
+	}
+	if *upstreamRepo == "" {
+		*upstreamRepo = *sourceRepo
+	}
 
 	b, u, err := urls.Get(*baseURL, *uploadURL)
 	if err != nil {
 		glog.Exitf("failed to get URLs: %v", err)
 	}
 
-	c, err := client.Create(b, u, *sourceOwner, *sourceRepo, *login, *token)
+	fork, upstream, err := client.CreatePair(b, u, *sourceOwner, *sourceRepo, *upstreamOwner, *upstreamRepo, *login, *token)
 	if err != nil {
-		glog.Exitf("failed to create client: %v", err)
+		glog.Exitf("failed to create clients: %v", err)
 	}
+	cs := &clients{fork: fork, upstream: upstream}
 
-	if err := submitPR(c, *dryRun, *force, *baseBranch, *pr, *method, *directive); err != nil {
+	if err := submitPR(cs, *dryRun, *force, *baseBranch, *pr, *method, *directive); err != nil {
 		glog.Exitf("submitPR failed: %v", err)
 	}
 }

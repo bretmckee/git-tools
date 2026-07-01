@@ -30,11 +30,18 @@ After cloning this repository, you need to:
   this by symlinking them into ~/bin.
 * Modify scripts/git-push-branches by changing DIRECTIVE and BRANCH_PREFIX to
   include what you want them to be (you probably don't want "bretmckee" in them).
+  If you leave BRANCH_PREFIX at its default it will be `users/${LOGIN}/`, so
+  setting `LOGIN=<your-github-username>` in your environment is enough for
+  most people.
 * Run `git config --global alias.pb push-branches` to add the pb alias to git.
 * [Create a Personal Access Token](
   https://docs.github.com/en/github/authenticating-to-github/keeping-your-account-and-data-secure/creating-a-personal-access-token)
   and ensure that it is in the GITHUB_TOKEN environment variable (maybe via
   .profile?)
+* For fork-based workflows: adding the upstream repo as a second git remote
+  (e.g. `git remote add upstream <upstream-url>`) is optional but recommended
+  so `submit-prs` can fetch the latest base branch after a merge. `git pb`
+  itself does not need it - branches only get pushed to your fork.
 
 ## Using the scripts
 
@@ -67,9 +74,49 @@ create-reviews --logtostderr --draft=false --source-owner=bretmckee --login=bret
 --show-toplevel)) -token "${GITHUB_TOKEN}"
 ```
 
+## For fork-based accounts
+When commits live in a fork and PRs are created against a different upstream
+repository, pass `--upstream-owner` (and optionally `--upstream-repo` when the
+upstream repo has a different name than the fork):
+```bash
+create-reviews --logtostderr --draft=false \
+--source-owner=bretmckee --login=bretmckee \
+--source-repo=$(basename $(git rev-parse --show-toplevel)) \
+--upstream-owner=some-org \
+--base=main --branch=users/bretmckee/develop \
+-token "${GITHUB_TOKEN}"
+```
+When either `--upstream-*` flag differs from its `--source-*` counterpart,
+`create-reviews` operates in fork mode: it lists branches on the fork, lists
+and creates PRs in the upstream, and sets the PR head to
+`${LOGIN}:${branch}` as GitHub requires for cross-fork PRs. When both flags
+match (or are omitted), behaviour is identical to same-repo mode.
+
+For stacked PRs, each PR after the first uses the previous stack branch as
+its base, which GitHub requires to exist in the upstream repo. `create-reviews`
+handles this automatically via the GitHub API: for every stack branch it sees
+in the fork, it creates or force-updates a matching ref in the upstream
+pointing at the same SHA. This relies on GitHub's fork network sharing the
+git object store (true for real forks; if it fails on your setup the error
+message surfaces both the update and create attempts so you can diagnose).
+No dual push, no extra env var - `--upstream-owner` is all you need.
+
 ### Submit a PR based on a commit message
 ## For github.com accounts
 ## For Enterprise accounts
 ```bash
 REMOTE="<remote>" SOURCE_OWNER="<owner>" URL="https://<url>/api/v3" TOKEN="${GITHUB_ENTERPRISE_TOKEN}" submit-prs 13
 ```
+
+## For fork-based accounts
+```bash
+REMOTE="origin" UPSTREAM_REMOTE="upstream" \
+SOURCE_OWNER="bretmckee" UPSTREAM_OWNER="some-org" \
+TOKEN="${GITHUB_TOKEN}" submit-prs 13
+```
+`UPSTREAM_OWNER` (and `UPSTREAM_REPO` when the upstream repo name differs
+from the fork) is forwarded to `submit-pr` and `rebase-prs` so PRs are queried
+and merged in the upstream. `UPSTREAM_REMOTE` is optional and only used for
+the `git fetch` of the latest base branch after each merge - if you omit it,
+the base is fetched from `${REMOTE}` (your fork), which is fine as long as
+your fork's default branch is synced with upstream.

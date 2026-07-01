@@ -37,3 +37,29 @@ func Create(baseURL, uploadURL, owner, repo, login, token string) (*Client, erro
 		client: client,
 	}, nil
 }
+
+func (c *Client) Owner() string {
+	return c.owner
+}
+
+func (c *Client) Repo() string {
+	return c.repo
+}
+
+// When fork and upstream refer to the same owner/repo, both returned pointers
+// refer to the same underlying Client so callers can detect same-repo mode via
+// pointer equality (fork == upstream).
+func CreatePair(baseURL, uploadURL, sourceOwner, sourceRepo, upstreamOwner, upstreamRepo, login, token string) (fork *Client, upstream *Client, err error) {
+	fork, err = Create(baseURL, uploadURL, sourceOwner, sourceRepo, login, token)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create fork client: %v", err)
+	}
+	if sourceOwner == upstreamOwner && sourceRepo == upstreamRepo {
+		return fork, fork, nil
+	}
+	upstream, err = Create(baseURL, uploadURL, upstreamOwner, upstreamRepo, login, token)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to create upstream client: %v", err)
+	}
+	return fork, upstream, nil
+}

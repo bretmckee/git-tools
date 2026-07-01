@@ -40,4 +40,10 @@ type Repo interface {
 
 	// CheckRunsForRef returns check runs for a specific ref.
 	CheckRunsForRef(ref string, opts *github.ListCheckRunsOptions) (*github.ListCheckRunsResults, error)
+
+	// EnsureRef makes refs/heads/branchName point at sha, creating the branch
+	// if it doesn't yet exist and force-updating it otherwise. Used to sync
+	// upstream anchor branches with commits pushed only to a fork (GitHub's
+	// fork network shares the git object store).
+	EnsureRef(branchName, sha string) error
 }
